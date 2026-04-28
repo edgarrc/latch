@@ -3,16 +3,29 @@ from __future__ import annotations
 import importlib
 import json
 import re
+import secrets
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
 import yaml
 from filelock import FileLock, Timeout
-from flask import Flask, Response, abort, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    stream_with_context,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from plugins.base import (
     BasePlugin,
@@ -28,6 +41,9 @@ BASE_DIR = Path(__file__).resolve().parent
 MODULES_DIR = BASE_DIR / "modules"
 LOCKS_DIR = BASE_DIR / "locks"
 TEMP_DIR = BASE_DIR / "temp"
+SETTINGS_PATH = BASE_DIR / "settings.yaml"
+ADMIN_USERNAME = "admin"
+SESSION_USER_KEY = "user"
 MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
     "command_line": "plugins.command_line.CommandLinePlugin",
@@ -39,6 +55,48 @@ ACTIVE_MODULES_LOCK = threading.Lock()
 LOCKS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 app = Flask(__name__)
+app.permanent_session_lifetime = timedelta(hours=24)
+
+
+def load_settings() -> dict[str, Any] | None:
+    if not SETTINGS_PATH.exists():
+        return None
+
+    with SETTINGS_PATH.open("r", encoding="utf-8") as settings_file:
+        settings = yaml.safe_load(settings_file) or {}
+    if not isinstance(settings, dict):
+        return None
+    return settings
+
+
+def build_settings(password: str) -> dict[str, str]:
+    timestamp = datetime.now(timezone.utc).isoformat()
+    return {
+        "username": ADMIN_USERNAME,
+        "password_hash": generate_password_hash(password),
+        "secret_key": secrets.token_urlsafe(32),
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+
+
+def write_settings(settings: dict[str, Any]) -> None:
+    SETTINGS_PATH.write_text(
+        yaml.safe_dump(settings, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def load_persisted_secret_key() -> str | None:
+    settings = load_settings()
+    if settings is None:
+        return None
+
+    secret_key = settings.get("secret_key")
+    return secret_key if isinstance(secret_key, str) and secret_key else None
+
+
+app.secret_key = load_persisted_secret_key() or secrets.token_urlsafe(32)
 
 
 @dataclass
@@ -52,6 +110,122 @@ class ActiveRun:
     kill_requested: bool = False
     plugin_statuses: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def is_authenticated() -> bool:
+    return session.get(SESSION_USER_KEY) == ADMIN_USERNAME
+
+
+def authenticate_session() -> None:
+    session.clear()
+    session.permanent = True
+    session[SESSION_USER_KEY] = ADMIN_USERNAME
+
+
+def is_api_request() -> bool:
+    return request.path.startswith("/api/")
+
+
+def safe_next_url(next_url: str | None) -> str:
+    if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url
+    return url_for("index")
+
+
+@app.before_request
+def require_authentication() -> Response | tuple[Response, int] | None:
+    if app.config.get("AUTH_DISABLED"):
+        return None
+
+    if request.endpoint == "static":
+        return None
+
+    settings = load_settings()
+    setup_endpoint = request.endpoint == "setup"
+    login_endpoint = request.endpoint == "login"
+    logout_endpoint = request.endpoint == "logout"
+
+    if settings is None:
+        if setup_endpoint:
+            return None
+        return redirect(url_for("setup"))
+
+    if is_authenticated():
+        if setup_endpoint or login_endpoint:
+            return redirect(url_for("index"))
+        return None
+
+    if login_endpoint or logout_endpoint:
+        return None
+
+    if is_api_request():
+        return (
+            jsonify({"authenticated": False, "message": "Autenticação requerida."}),
+            401,
+        )
+
+    return redirect(url_for("login", next=request.full_path.rstrip("?")))
+
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup() -> str | Response:
+    if load_settings() is not None:
+        return redirect(url_for("index") if is_authenticated() else url_for("login"))
+
+    error = ""
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
+
+        if not password:
+            error = "Informe a senha do admin."
+        elif password != password_confirm:
+            error = "A confirmação da senha não confere."
+        else:
+            settings = build_settings(password)
+            write_settings(settings)
+            app.secret_key = settings["secret_key"]
+            authenticate_session()
+            return redirect(url_for("index"))
+
+    return render_template("setup.html", error=error)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login() -> str | Response:
+    settings = load_settings()
+    if settings is None:
+        return redirect(url_for("setup"))
+
+    next_url = safe_next_url(request.values.get("next"))
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        password_hash = settings.get("password_hash")
+
+        if (
+            username == ADMIN_USERNAME
+            and isinstance(password_hash, str)
+            and check_password_hash(password_hash, password)
+        ):
+            authenticate_session()
+            return redirect(next_url)
+
+        error = "Usuário ou senha inválidos."
+
+    return render_template(
+        "login.html",
+        error=error,
+        next_url=next_url,
+        username=ADMIN_USERNAME,
+    )
+
+
+@app.post("/logout")
+def logout() -> Response:
+    session.clear()
+    return redirect(url_for("login") if load_settings() is not None else url_for("setup"))
 
 
 @app.get("/")

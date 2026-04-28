@@ -43,6 +43,9 @@
           <button id="runButton" class="btn btn-primary" type="button" {% if module.running %}disabled{% endif %}>
             {% if module.running %}Executando...{% else %}Executar Batch{% endif %}
           </button>
+          <form method="post" action="/logout">
+            <button class="btn btn-outline-secondary" type="submit">Logout</button>
+          </form>
         </div>
       </div>
 
@@ -207,6 +210,18 @@
         statusBadge.textContent = text;
       }
 
+      function redirectToLogin() {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      }
+
+      function handleUnauthorized(response) {
+        if (response.status === 401) {
+          redirectToLogin();
+          return true;
+        }
+        return false;
+      }
+
       function setRunningState(running) {
         if (running) {
           runButton.disabled = true;
@@ -243,6 +258,10 @@
 
         try {
           const response = await fetch("/api/modules/{{ module.id }}/status", { cache: "no-store" });
+          if (handleUnauthorized(response)) {
+            return;
+          }
+
           if (!response.ok) {
             return;
           }
@@ -267,6 +286,10 @@
 
         try {
           const response = await fetch(`/api/modules/{{ module.id }}/logs?${params.toString()}`, { cache: "no-store" });
+          if (handleUnauthorized(response)) {
+            return;
+          }
+
           if (!response.ok) {
             return;
           }
@@ -294,9 +317,18 @@
         }
       }
 
-      runButton.addEventListener("click", () => {
+      runButton.addEventListener("click", async () => {
         if (eventSource) {
           eventSource.close();
+        }
+
+        try {
+          const response = await fetch("/api/modules/{{ module.id }}/status", { cache: "no-store" });
+          if (handleUnauthorized(response)) {
+            return;
+          }
+        } catch (_error) {
+          return;
         }
 
         resetConsole();
@@ -383,6 +415,9 @@
             method: "POST",
             cache: "no-store",
           });
+          if (handleUnauthorized(response)) {
+            return;
+          }
 
           if (response.status === 409) {
             const payload = await response.json();
@@ -423,6 +458,9 @@
             method: "POST",
             cache: "no-store",
           });
+          if (handleUnauthorized(response)) {
+            return;
+          }
 
           if (!response.ok) {
             const payload = await response.json();

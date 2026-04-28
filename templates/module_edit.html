@@ -52,6 +52,9 @@
             type="button"
             {% if module_running %}disabled{% endif %}
           >Salvar</button>
+          <form method="post" action="/logout">
+            <button class="btn btn-outline-secondary" type="submit">Logout</button>
+          </form>
         </div>
       </div>
 
@@ -102,12 +105,21 @@
         return mode === "edit" ? existingModuleId : moduleIdInput.value.trim();
       }
 
+      function redirectToLogin() {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      }
+
       async function requestJson(url, options) {
         const response = await fetch(url, {
           cache: "no-store",
           headers: { "Content-Type": "application/json" },
           ...options,
         });
+        if (response.status === 401) {
+          redirectToLogin();
+          return { response, payload: {} };
+        }
+
         const payload = await response.json();
         return { response, payload };
       }

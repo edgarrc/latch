@@ -6,6 +6,7 @@ import sys
 from typing import Iterator
 
 import pytest
+from werkzeug.security import check_password_hash
 
 from app import (
     active_run_path,
@@ -20,6 +21,19 @@ from app import (
     stream_batch,
 )
 from plugins.base import BasePlugin, PluginEvent, PluginKilledError
+
+
+@pytest.fixture(autouse=True)
+def disable_auth_for_existing_tests() -> Iterator[None]:
+    previous_auth_disabled = app.config.get("AUTH_DISABLED")
+    previous_secret_key = app.secret_key
+    app.config["AUTH_DISABLED"] = True
+    yield
+    if previous_auth_disabled is None:
+        app.config.pop("AUTH_DISABLED", None)
+    else:
+        app.config["AUTH_DISABLED"] = previous_auth_disabled
+    app.secret_key = previous_secret_key
 
 
 class FakeKillablePlugin(BasePlugin):
@@ -49,6 +63,138 @@ class FakeKilledPlugin(BasePlugin):
 def parse_sse_data(event: str) -> dict[str, object]:
     data_line = next(line for line in event.splitlines() if line.startswith("data: "))
     return json.loads(data_line.removeprefix("data: "))
+
+
+def enable_auth_with_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(app_module, "SETTINGS_PATH", tmp_path / "settings.yaml")
+    app.config["AUTH_DISABLED"] = False
+    app.secret_key = "test-secret"
+
+
+def write_auth_settings(password: str = "secret") -> dict[str, str]:
+    settings = app_module.build_settings(password)
+    app_module.write_settings(settings)
+    app.secret_key = settings["secret_key"]
+    return settings
+
+
+def test_missing_settings_redirects_to_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+
+    client = app.test_client()
+
+    response = client.get("/")
+    setup_response = client.get("/setup")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/setup")
+    assert setup_response.status_code == 200
+    assert b"Setup inicial" in setup_response.data
+
+
+def test_setup_creates_settings_hash_and_authenticates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+
+    client = app.test_client()
+    response = client.post(
+        "/setup",
+        data={"password": "secret", "password_confirm": "secret"},
+    )
+
+    settings = app_module.load_settings()
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    assert settings is not None
+    assert settings["username"] == "admin"
+    assert settings["password_hash"] != "secret"
+    assert check_password_hash(settings["password_hash"], "secret")
+    assert settings["secret_key"]
+    with client.session_transaction() as client_session:
+        assert client_session["user"] == "admin"
+        assert client_session.permanent is True
+
+
+def test_login_required_for_html_when_settings_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+
+    client = app.test_client()
+    response = client.get("/modules/new")
+
+    assert response.status_code == 302
+    assert "/login?next=/modules/new" in response.headers["Location"]
+
+
+def test_login_required_for_api_when_settings_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+
+    client = app.test_client()
+    response = client.get("/api/modules/status")
+
+    assert response.status_code == 401
+    assert response.get_json()["authenticated"] is False
+
+
+def test_login_rejects_invalid_password(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings("secret")
+
+    client = app.test_client()
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "wrong"},
+    )
+
+    assert response.status_code == 200
+    assert "Usuário ou senha inválidos.".encode() in response.data
+    with client.session_transaction() as client_session:
+        assert "user" not in client_session
+
+
+def test_login_accepts_valid_password_and_logout_clears_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings("secret")
+
+    client = app.test_client()
+    login_response = client.post(
+        "/login?next=/modules/new",
+        data={"username": "admin", "password": "secret", "next": "/modules/new"},
+    )
+
+    assert login_response.status_code == 302
+    assert login_response.headers["Location"].endswith("/modules/new")
+    with client.session_transaction() as client_session:
+        assert client_session["user"] == "admin"
+        assert client_session.permanent is True
+
+    protected_response = client.get("/")
+    logout_response = client.post("/logout")
+
+    assert protected_response.status_code == 200
+    assert logout_response.status_code == 302
+    assert logout_response.headers["Location"].endswith("/login")
+    with client.session_transaction() as client_session:
+        assert "user" not in client_session
 
 
 def test_load_module_config_reads_configured_plugins() -> None:

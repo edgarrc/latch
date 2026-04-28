@@ -10,7 +10,12 @@
     <main class="container py-4">
       <div class="d-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0">Gerenciador Batch</h1>
-        <a class="btn btn-primary" href="/modules/new">Adicionar</a>
+        <div class="d-flex gap-2">
+          <a class="btn btn-primary" href="/modules/new">Adicionar</a>
+          <form method="post" action="/logout">
+            <button class="btn btn-outline-secondary" type="submit">Logout</button>
+          </form>
+        </div>
       </div>
 
       <div class="table-responsive">
@@ -69,9 +74,18 @@
         badge.textContent = running ? "Executando" : "Pronto";
       }
 
+      function redirectToLogin() {
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      }
+
       async function refreshModuleStatuses() {
         try {
           const response = await fetch("/api/modules/status", { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+
           if (!response.ok) {
             return;
           }
