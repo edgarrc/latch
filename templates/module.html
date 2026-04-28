@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ module.name }} - Gerenciador Batch</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      .console {
+        background: #111827;
+        border-radius: 8px;
+        color: #e5e7eb;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        height: 420px;
+        overflow: auto;
+        padding: 1rem;
+        white-space: pre-wrap;
+      }
+
+      .log-error { color: #fca5a5; }
+      .log-success { color: #86efac; }
+      .log-info { color: #93c5fd; }
+      .log-output { color: #e5e7eb; }
+    </style>
+  </head>
+  <body class="bg-body-tertiary">
+    <main class="container py-4">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <a class="link-secondary text-decoration-none" href="/">← Módulos</a>
+          <h1 class="h3 mt-2 mb-0">{{ module.name }}</h1>
+        </div>
+        <div class="d-flex gap-2">
+          <button id="clearButton" class="btn btn-outline-secondary" type="button" {% if module.running %}disabled{% endif %}>Clear</button>
+          <button id="runButton" class="btn btn-primary" type="button" {% if module.running %}disabled{% endif %}>
+            {% if module.running %}Executando...{% else %}Executar Batch{% endif %}
+          </button>
+        </div>
+      </div>
+
+      <section class="mb-4">
+        <h2 class="h5">Plugins configurados</h2>
+        <ol class="list-group list-group-numbered">
+          {% for plugin in module.plugins %}
+            <li class="list-group-item d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fw-semibold">{{ plugin.id }}</div>
+                <div class="text-secondary small">{{ plugin.type }}</div>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+
+      <section>
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="h5 mb-0">Console</h2>
+          <span id="statusBadge" class="badge {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+            {% if module.running %}Executando{% else %}Pronto{% endif %}
+          </span>
+        </div>
+        <div id="console" class="console" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script>
+      const runButton = document.getElementById("runButton");
+      const clearButton = document.getElementById("clearButton");
+      const consoleEl = document.getElementById("console");
+      const statusBadge = document.getElementById("statusBadge");
+      let eventSource = null;
+      let lastLogSequence = 0;
+      let currentLogRunId = "";
+      let renderedLogKeys = new Set();
+      let logRequestEpoch = 0;
+      let waitingForNewRun = false;
+      let lastTerminalStatus = "";
+
+      function appendLog(payload) {
+        if (payload.run_id && Number.isInteger(payload.sequence)) {
+          const key = `${payload.run_id}:${payload.sequence}`;
+          if (renderedLogKeys.has(key)) {
+            return;
+          }
+          renderedLogKeys.add(key);
+          currentLogRunId = payload.run_id;
+        }
+
+        const line = document.createElement("div");
+        const prefix = payload.plugin ? `[${payload.plugin}] ` : "";
+        line.className = `log-${payload.level || "output"}`;
+        const time = payload.created_at ? new Date(payload.created_at).toLocaleTimeString() : new Date().toLocaleTimeString();
+        line.textContent = `${time} ${prefix}${payload.message}`;
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+
+        if (Number.isInteger(payload.sequence)) {
+          lastLogSequence = Math.max(lastLogSequence, payload.sequence);
+        }
+      }
+
+      function resetConsole(runId = "") {
+        consoleEl.textContent = "";
+        lastLogSequence = 0;
+        currentLogRunId = runId;
+        renderedLogKeys = new Set();
+        logRequestEpoch += 1;
+      }
+
+      function setStatus(text, className) {
+        statusBadge.className = `badge ${className}`;
+        statusBadge.textContent = text;
+      }
+
+      function setRunningState(running) {
+        if (running) {
+          runButton.disabled = true;
+          clearButton.disabled = true;
+          runButton.textContent = "Executando...";
+          setStatus("Executando", "text-bg-primary");
+        } else {
+          runButton.disabled = false;
+          clearButton.disabled = false;
+          runButton.textContent = "Executar Batch";
+          if (lastTerminalStatus === "success") {
+            setStatus("Concluído", "text-bg-success");
+          } else if (lastTerminalStatus === "failed") {
+            setStatus("Falhou", "text-bg-danger");
+          } else {
+            setStatus("Pronto", "text-bg-secondary");
+          }
+        }
+      }
+
+      async function refreshModuleStatus() {
+        if (eventSource) {
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/modules/{{ module.id }}/status", { cache: "no-store" });
+          if (!response.ok) {
+            return;
+          }
+
+          const payload = await response.json();
+          setRunningState(payload.running);
+        } catch (_error) {
+          return;
+        }
+      }
+
+      async function refreshModuleLogs() {
+        if (waitingForNewRun) {
+          return;
+        }
+
+        const requestEpoch = logRequestEpoch;
+        const params = new URLSearchParams({ since: String(lastLogSequence) });
+        if (currentLogRunId) {
+          params.set("run_id", currentLogRunId);
+        }
+
+        try {
+          const response = await fetch(`/api/modules/{{ module.id }}/logs?${params.toString()}`, { cache: "no-store" });
+          if (!response.ok) {
+            return;
+          }
+
+          const payload = await response.json();
+          if (requestEpoch !== logRequestEpoch) {
+            return;
+          }
+
+          if (payload.reset) {
+            resetConsole(payload.run_id || "");
+          }
+
+          for (const event of payload.events) {
+            appendLog(event);
+            if (event.event === "done") {
+              lastTerminalStatus = event.status || "";
+            }
+          }
+
+          lastLogSequence = Math.max(lastLogSequence, payload.latest_sequence || 0);
+          setRunningState(payload.running);
+        } catch (_error) {
+          return;
+        }
+      }
+
+      runButton.addEventListener("click", () => {
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        resetConsole();
+        lastTerminalStatus = "";
+        waitingForNewRun = true;
+        window.setTimeout(() => {
+          waitingForNewRun = false;
+          refreshModuleLogs();
+        }, 500);
+
+        runButton.disabled = true;
+        clearButton.disabled = true;
+        runButton.textContent = "Executando...";
+        setStatus("Executando", "text-bg-primary");
+        eventSource = new EventSource(`/api/modules/{{ module.id }}/run?t=${Date.now()}`);
+
+        for (const eventName of ["status", "plugin_start", "log", "plugin_done"]) {
+          eventSource.addEventListener(eventName, (event) => {
+            waitingForNewRun = false;
+            appendLog(JSON.parse(event.data));
+          });
+        }
+
+        eventSource.addEventListener("done", (event) => {
+          const payload = JSON.parse(event.data);
+          waitingForNewRun = false;
+          appendLog(payload);
+          lastTerminalStatus = payload.status || "";
+          eventSource.close();
+          eventSource = null;
+
+          if (payload.status === "success") {
+            runButton.disabled = false;
+            clearButton.disabled = false;
+            runButton.textContent = "Executar Batch";
+            setStatus("Concluído", "text-bg-success");
+          } else if (payload.status === "locked") {
+            resetConsole();
+            setRunningState(true);
+            refreshModuleLogs();
+          } else {
+            runButton.disabled = false;
+            clearButton.disabled = false;
+            runButton.textContent = "Executar Batch";
+            setStatus("Falhou", "text-bg-danger");
+          }
+        });
+
+        eventSource.onerror = () => {
+          waitingForNewRun = false;
+          appendLog({ level: "error", message: "Conexão de log interrompida." });
+          eventSource.close();
+          eventSource = null;
+          runButton.disabled = false;
+          clearButton.disabled = false;
+          runButton.textContent = "Executar Batch";
+          setStatus("Erro", "text-bg-danger");
+          refreshModuleLogs();
+        };
+      });
+
+      clearButton.addEventListener("click", async () => {
+        if (eventSource || clearButton.disabled) {
+          return;
+        }
+
+        clearButton.disabled = true;
+
+        try {
+          const response = await fetch("/api/modules/{{ module.id }}/logs/clear", {
+            method: "POST",
+            cache: "no-store",
+          });
+
+          if (response.status === 409) {
+            const payload = await response.json();
+            appendLog({ level: "error", message: payload.message });
+            setRunningState(true);
+            refreshModuleLogs();
+            return;
+          }
+
+          if (!response.ok) {
+            appendLog({ level: "error", message: "Não foi possível limpar o log." });
+            return;
+          }
+
+          resetConsole();
+          lastTerminalStatus = "";
+          setRunningState(false);
+        } catch (_error) {
+          appendLog({ level: "error", message: "Não foi possível limpar o log." });
+        } finally {
+          if (!eventSource) {
+            clearButton.disabled = runButton.disabled;
+          }
+        }
+      });
+
+      refreshModuleLogs();
+      setInterval(refreshModuleStatus, 2500);
+      setInterval(refreshModuleLogs, 1000);
+    </script>
+  </body>
+</html>

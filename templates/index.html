@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gerenciador Batch</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-body-tertiary">
+    <main class="container py-4">
+      <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0">Gerenciador Batch</h1>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover align-middle bg-white border">
+          <thead>
+            <tr>
+              <th scope="col">Módulo</th>
+              <th class="text-center" scope="col">Plugins</th>
+              <th class="text-center" scope="col">Status</th>
+              <th class="text-end" scope="col">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for module in modules %}
+              <tr data-module-id="{{ module.id }}">
+                <td class="fw-semibold">{{ module.name }}</td>
+                <td class="text-center">{{ module.plugins | length }}</td>
+                <td class="text-center">
+                  <span class="badge module-status {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                    {% if module.running %}Executando{% else %}Pronto{% endif %}
+                  </span>
+                </td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-primary" href="/{{ module.id }}">Abrir</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <script>
+      const statusBadges = new Map(
+        [...document.querySelectorAll("[data-module-id]")].map((row) => [
+          row.dataset.moduleId,
+          row.querySelector(".module-status"),
+        ])
+      );
+
+      function setModuleStatus(moduleId, running) {
+        const badge = statusBadges.get(moduleId);
+        if (!badge) {
+          return;
+        }
+
+        badge.className = `badge module-status ${running ? "text-bg-primary" : "text-bg-secondary"}`;
+        badge.textContent = running ? "Executando" : "Pronto";
+      }
+
+      async function refreshModuleStatuses() {
+        try {
+          const response = await fetch("/api/modules/status", { cache: "no-store" });
+          if (!response.ok) {
+            return;
+          }
+
+          const payload = await response.json();
+          for (const [moduleId, status] of Object.entries(payload.modules)) {
+            setModuleStatus(moduleId, status.running);
+          }
+        } catch (_error) {
+          return;
+        }
+      }
+
+      setInterval(refreshModuleStatuses, 2500);
+    </script>
+  </body>
+</html>

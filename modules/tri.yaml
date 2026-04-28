@@ -1,0 +1,12 @@
+name: TRI
+plugins:
+  - id: preparar_tri
+    type: command_line
+    command: "echo Preparando modulo TRI"
+    error_contains: "ERROR"
+    success_contains: "TRI"
+  - id: processar_tri
+    type: command_line
+    command: "echo Batch TRI concluido"
+    error_contains: "ERROR"
+    success_contains: "concluido"
