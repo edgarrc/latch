@@ -21,6 +21,10 @@
       .log-success { color: #86efac; }
       .log-info { color: #93c5fd; }
       .log-output { color: #e5e7eb; }
+
+      .plugin-status {
+        min-width: 7.5rem;
+      }
     </style>
   </head>
   <body class="bg-body-tertiary">
@@ -41,16 +45,33 @@
 
       <section class="mb-4">
         <h2 class="h5">Plugins configurados</h2>
-        <ol class="list-group list-group-numbered">
-          {% for plugin in module.plugins %}
-            <li class="list-group-item d-flex justify-content-between align-items-start">
-              <div>
-                <div class="fw-semibold">{{ plugin.id }}</div>
-                <div class="text-secondary small">{{ plugin.type }}</div>
-              </div>
-            </li>
-          {% endfor %}
-        </ol>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle bg-white">
+            <thead>
+              <tr>
+                <th scope="col" class="text-secondary fw-semibold">#</th>
+                <th scope="col" class="text-secondary fw-semibold">Etapa</th>
+                <th scope="col" class="text-secondary fw-semibold">Tipo</th>
+                <th scope="col" class="text-secondary fw-semibold text-end">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for plugin in module.plugins %}
+                <tr>
+                  <td class="text-secondary">{{ loop.index }}</td>
+                  <td class="fw-semibold">{{ plugin.id }}</td>
+                  <td class="text-secondary small">{{ plugin.type }}</td>
+                  <td class="text-end">
+                    <span
+                      class="badge plugin-status text-bg-secondary"
+                      data-plugin-id="{{ plugin.id }}"
+                    >Não iniciado</span>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section>
@@ -70,6 +91,21 @@
       const killButton = document.getElementById("killButton");
       const consoleEl = document.getElementById("console");
       const statusBadge = document.getElementById("statusBadge");
+      const pluginIds = {{ module.plugins | map(attribute="id") | list | tojson }};
+      const pluginStatusBadges = new Map(
+        Array.from(document.querySelectorAll(".plugin-status")).map((badge) => [
+          badge.dataset.pluginId,
+          badge,
+        ])
+      );
+      const pluginStatusConfig = {
+        not_started: { label: "Não iniciado", className: "text-bg-secondary" },
+        enqueued: { label: "Enfileirado", className: "text-bg-warning" },
+        running: { label: "Executando", className: "text-bg-primary" },
+        success: { label: "Concluído", className: "text-bg-success" },
+        failed: { label: "Falhou", className: "text-bg-danger" },
+        killed: { label: "Interrompido", className: "text-bg-danger" },
+      };
       let eventSource = null;
       let lastLogSequence = 0;
       let currentLogRunId = "";
@@ -78,6 +114,54 @@
       let waitingForNewRun = false;
       let lastTerminalStatus = "";
       let killRequested = false;
+
+      function setPluginStatus(pluginId, status) {
+        const badge = pluginStatusBadges.get(pluginId);
+        const config = pluginStatusConfig[status];
+        if (!badge || !config) {
+          return;
+        }
+
+        badge.className = `badge plugin-status ${config.className}`;
+        badge.textContent = config.label;
+      }
+
+      function setAllPluginStatuses(status) {
+        for (const pluginId of pluginIds) {
+          setPluginStatus(pluginId, status);
+        }
+      }
+
+      function applyPluginStatuses(statuses) {
+        if (!statuses || typeof statuses !== "object") {
+          return false;
+        }
+
+        for (const [pluginId, status] of Object.entries(statuses)) {
+          setPluginStatus(pluginId, status);
+        }
+        return true;
+      }
+
+      function updatePluginStatusesFromEvent(payload) {
+        if (applyPluginStatuses(payload.plugin_statuses)) {
+          return;
+        }
+
+        if (payload.event === "status") {
+          setAllPluginStatuses("enqueued");
+        } else if (payload.event === "plugin_start" && payload.plugin) {
+          setPluginStatus(payload.plugin, "running");
+        } else if (payload.event === "plugin_done" && payload.plugin) {
+          setPluginStatus(payload.plugin, "success");
+        } else if (payload.event === "done" && payload.plugin) {
+          if (payload.status === "failed") {
+            setPluginStatus(payload.plugin, "failed");
+          } else if (payload.status === "killed") {
+            setPluginStatus(payload.plugin, "killed");
+          }
+        }
+      }
 
       function appendLog(payload) {
         if (payload.run_id && Number.isInteger(payload.sequence)) {
@@ -88,6 +172,8 @@
           renderedLogKeys.add(key);
           currentLogRunId = payload.run_id;
         }
+
+        updatePluginStatusesFromEvent(payload);
 
         const line = document.createElement("div");
         const prefix = payload.plugin ? `[${payload.plugin}] ` : "";
@@ -108,6 +194,7 @@
         currentLogRunId = runId;
         renderedLogKeys = new Set();
         logRequestEpoch += 1;
+        setAllPluginStatuses("not_started");
       }
 
       function setStatus(text, className) {

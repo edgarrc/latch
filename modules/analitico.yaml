@@ -25,3 +25,13 @@ plugins:
     command: "echo Variavel sensitive: {senha_demo}"
     error_contains: "ERROR"
     success_contains: "segredo_analitico_demo"
+  - id: sleep
+    type: command_line
+    command: "sleep 10"
+    error_contains: 
+    success_contains:
+  - id: sleep2
+    type: command_line
+    command: "sleep 10"
+    error_contains:
+    success_contains:

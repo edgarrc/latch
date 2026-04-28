@@ -31,6 +31,7 @@ Casos de uso típicos:
 - Lock por módulo usando `filelock`.
 - Logs persistidos da última execução em arquivos temporários do projeto.
 - Recuperação do console ao sair e voltar para a página durante uma execução.
+- Status por etapa na página do módulo, com recuperação ao recarregar a tela.
 - Botão `Clear` para limpar logs quando o módulo está parado.
 - Botão `Kill` para interromper o plugin ativo.
 - UI simples com Bootstrap via CDN.
@@ -175,6 +176,19 @@ Novos plugins devem herdar de `BasePlugin` e implementar:
 - `kill()`: interrompe a execução ativa do plugin.
 
 O contrato completo e as regras de arquitetura estão documentados em `AGENT.md`.
+
+## Status das Etapas
+
+Na página do módulo, cada plugin aparece com um status individual:
+
+- `Não iniciado`: antes da execução ou após limpar os logs.
+- `Enfileirado`: etapa futura dentro do batch atual.
+- `Executando`: etapa ativa.
+- `Concluído`: etapa finalizada com sucesso.
+- `Falhou`: etapa que interrompeu o batch por erro.
+- `Interrompido`: etapa ativa quando o usuário solicitou `Kill`.
+
+Esses estados são reconstruídos pelos eventos persistidos da execução, então continuam aparecendo corretamente ao recarregar a página durante ou após um batch.
 
 ## Observações de Segurança
 

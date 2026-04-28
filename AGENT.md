@@ -82,7 +82,14 @@ Variáveis de módulo:
 - Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
 - Módulos diferentes podem executar em paralelo.
 - A página principal lista módulos em formato tabular, com status em coluna própria.
-- A página do módulo mostra plugins configurados, console, status e ações.
+- A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
+- Status por etapa:
+  - `Não iniciado`: estado inicial da tela, antes de uma execução ou depois de limpar logs.
+  - `Enfileirado`: etapa futura dentro da execução atual.
+  - `Executando`: etapa ativa.
+  - `Concluído`: etapa finalizada com sucesso.
+  - `Falhou`: etapa que encerrou o batch por erro.
+  - `Interrompido`: etapa ativa quando o batch foi morto pelo usuário.
 - O console deve mostrar logs em tempo real e também recuperar a saída da última execução persistida.
 - Se o usuário sair da página e voltar durante uma execução, o console deve continuar mostrando a saída já gerada e seguir acompanhando novos logs.
 - `Clear` apaga o log da última execução apenas se o módulo não estiver em execução.
@@ -171,11 +178,12 @@ Rotas principais:
 Persistência temporária:
 
 - Logs da última execução ficam em `temp/temp_<module>.jsonl`.
-- Cada linha é um evento JSON com `run_id`, `sequence`, `event`, `created_at`, `level`, `message` e metadados opcionais.
+- Cada linha é um evento JSON com `run_id`, `sequence`, `event`, `created_at`, `level`, `message`, status opcionais por etapa em `plugin_statuses` e metadados opcionais.
 - Execução ativa fica em `temp/active_<module>.json`.
+- A execução ativa inclui `plugin_statuses`, além de plugin atual, kill flag e metadados como PID/PGID.
 - Arquivos em `temp/*.jsonl` e `temp/active_*.json` não devem ser versionados.
 
-O `run_id` identifica uma execução. A `sequence` reinicia a cada nova execução. O frontend usa ambos para deduplicar eventos e detectar quando deve resetar o console.
+O `run_id` identifica uma execução. A `sequence` reinicia a cada nova execução. O frontend usa ambos para deduplicar eventos, detectar quando deve resetar o console e reconstruir status por etapa a partir dos eventos persistidos.
 
 ## Interface
 
@@ -195,6 +203,15 @@ Estados da tela do módulo:
 - `Concluído`: execução finalizou com sucesso.
 - `Falhou`: execução finalizou com erro.
 - `Interrompido`: execução foi morta pelo usuário.
+
+Estados da lista de etapas:
+
+- A tela inicial mostra todas as etapas como `Não iniciado`.
+- Ao iniciar um batch, as etapas entram em `Enfileirado`; a etapa atual vira `Executando` em `plugin_start`.
+- `plugin_done` marca a etapa como `Concluído`.
+- `done` com status `failed` marca o plugin do payload como `Falhou`.
+- `done` com status `killed` marca o plugin do payload como `Interrompido`.
+- Etapas futuras permanecem `Enfileirado` se o batch parar antes de chegar nelas.
 
 ## Concorrência
 
@@ -224,6 +241,8 @@ Manter cobertura para:
 - Independência entre módulos.
 - Persistência e leitura incremental de logs.
 - Reset de console por novo `run_id`.
+- Status por etapa em `plugin_statuses`, incluindo sucesso, falha e etapas futuras enfileiradas.
+- Persistência de `plugin_statuses` em `temp/active_<module>.json` durante execução.
 - Clear permitido quando parado.
 - Clear bloqueado durante execução.
 - Kill bloqueado quando parado.
