@@ -20,6 +20,7 @@ from plugins.base import (
     PluginKillError,
     PluginKilledError,
 )
+from plugins.variables import prepare_command_plugin_config, validate_variable_definitions
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -224,6 +225,7 @@ def load_module_config(module_name: str) -> dict[str, Any]:
     plugins = config.get("plugins")
     if not isinstance(plugins, list):
         raise ValueError(f"Module {module_name!r} must define a plugins list.")
+    variables = validate_variable_definitions(module_name, config.get("variables"))
 
     for index, plugin in enumerate(plugins, start=1):
         if not isinstance(plugin, dict):
@@ -236,6 +238,7 @@ def load_module_config(module_name: str) -> dict[str, Any]:
     return {
         "id": module_name,
         "name": config.get("name", module_name),
+        "variables": variables,
         "plugins": plugins,
     }
 
@@ -465,7 +468,7 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
 
             plugin_id = plugin_config["id"]
             try:
-                plugin = create_plugin(plugin_config)
+                plugin = create_plugin(plugin_config, module.get("variables", {}))
             except ValueError as exc:
                 yield emit(
                     "done",
@@ -573,16 +576,26 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
         lock.release()
 
 
-def create_plugin(plugin_config: dict[str, Any]) -> BasePlugin:
+def create_plugin(
+    plugin_config: dict[str, Any],
+    module_variables: dict[str, dict[str, Any]] | None = None,
+) -> BasePlugin:
     plugin_type = plugin_config["type"]
     import_path = PLUGIN_TYPES.get(plugin_type)
     if import_path is None:
         raise ValueError(f"Tipo de plugin desconhecido: {plugin_type!r}.")
 
+    prepared_plugin_config = plugin_config
+    if plugin_type == "command_line":
+        prepared_plugin_config = prepare_command_plugin_config(
+            plugin_config,
+            module_variables or {},
+        )
+
     module_path, class_name = import_path.rsplit(".", 1)
     plugin_module = importlib.import_module(module_path)
     plugin_class = getattr(plugin_module, class_name)
-    return plugin_class(plugin_config["id"], plugin_config)
+    return plugin_class(prepared_plugin_config["id"], prepared_plugin_config)
 
 
 def sse(event: str, payload: dict[str, Any]) -> str:

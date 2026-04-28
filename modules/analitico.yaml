@@ -1,12 +1,27 @@
 name: Analítico
+variables:
+  nome_rotina:
+    type: string
+    value: analitico
+  limite_linhas:
+    type: integer
+    value: 1000
+  senha_demo:
+    type: sensitive
+    value: segredo_analitico_demo
 plugins:
-  - id: preparar_analitico
+  - id: echo_variavel_string
     type: command_line
-    command: "echo Preparando modulo analitico"
+    command: "echo Variavel string: {nome_rotina}"
     error_contains: "ERROR"
     success_contains: "analitico"
-  - id: processar_analitico_com_sleep
+  - id: echo_variavel_integer
     type: command_line
-    command: "sleep 30 && echo Batch analitico concluido"
+    command: "echo Variavel integer: {limite_linhas}"
     error_contains: "ERROR"
-    success_contains: "concluido"
+    success_contains: "1000"
+  - id: echo_variavel_sensitive
+    type: command_line
+    command: "echo Variavel sensitive: {senha_demo}"
+    error_contains: "ERROR"
+    success_contains: "segredo_analitico_demo"

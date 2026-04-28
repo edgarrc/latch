@@ -23,6 +23,7 @@ Estrutura principal:
 - `app.py`: entrypoint Flask, rotas HTTP, execução batch, locking, logs persistidos e controle de execução ativa.
 - `modules/`: configurações YAML dos módulos.
 - `plugins/`: implementação dos tipos de plugin.
+- `plugins/variables.py`: validação, resolução, substituição e mascaramento de variáveis de módulo usadas por comandos.
 - `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
 - `locks/`: arquivos de lock por módulo usando `filelock`.
 - `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
@@ -36,20 +37,42 @@ Módulos suportados:
 Configuração de módulo:
 
 - Cada módulo possui um YAML em `modules/<module>.yaml`.
-- O YAML define `name` e a lista ordenada `plugins`.
+- O YAML define `name`, opcionalmente `variables`, e a lista ordenada `plugins`.
 - A ordem da lista é a ordem exata de execução.
 
 Exemplo:
 
 ```yaml
 name: Analítico
+variables:
+  database:
+    type: string
+    value: analytics
+  batch_limit:
+    type: integer
+    value: 1000
+  clickhouse_password:
+    type: sensitive
+    value: $CLICKHOUSE_PASSWORD
 plugins:
   - id: processar_analitico
     type: command_line
-    command: "sleep 30 && echo Batch analitico concluido"
+    command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM eventos LIMIT {batch_limit}'"
     error_contains: "ERROR"
-    success_contains: "concluido"
 ```
+
+Variáveis de módulo:
+
+- `variables` é opcional e tem escopo por módulo.
+- Cada variável deve usar o formato explícito `{type, value}`.
+- Tipos suportados: `string`, `integer` e `sensitive`.
+- `string` e `sensitive` exigem valor textual; `integer` aceita inteiro YAML ou texto numérico.
+- Valores no formato `$NOME_ENV` são resolvidos a partir do ambiente no momento da criação do plugin.
+- Variável de ambiente ausente falha antes de iniciar o comando.
+- Nomes de variáveis e placeholders devem seguir `^[A-Za-z_][A-Za-z0-9_]*$`.
+- Placeholders desconhecidos falham antes de iniciar o comando.
+- Valores `sensitive` nunca devem aparecer em logs, console, SSE, JSON persistido ou metadados ativos; devem ser mascarados como `****`.
+- O mascaramento é literal sobre o valor sensível resolvido. Transformações feitas por processos externos, como hash ou encoding, não são inferidas.
 
 ## Regras de Negócio
 
@@ -98,6 +121,12 @@ Regras:
 - `command` pode ser string ou lista de strings.
 - String usa `shell=True`.
 - Lista usa execução direta.
+- Se o módulo tiver `variables`, placeholders `{variavel}` são substituídos antes do `subprocess`.
+- Em comando string, valores substituídos são escapados com `shlex.quote`.
+- Em comando lista, valores substituídos viram texto dentro do argumento correspondente, sem shell quoting.
+- Logs de comando iniciado e metadados usam a versão mascarada do comando.
+- Linhas de stdout/stderr são mascaradas antes de virar `PluginEvent`.
+- Se `variables` estiver configurado, chaves literais em comandos devem ser escapadas como `{{` e `}}`.
 - O processo é iniciado com `start_new_session=True`, criando grupo próprio.
 - O PID e PGID são gravados nos metadados ativos em `temp/active_<module>.json`.
 - O kill é feito por grupo de processo via shell:
@@ -184,6 +213,13 @@ Manter cobertura para:
 - Falha por exit code.
 - Falha por `error_contains`.
 - Falha por ausência de `success_contains`.
+- Validação de `variables` no YAML.
+- Substituição de placeholder em comando string e lista.
+- Resolução de variável por ambiente.
+- Falha por variável de ambiente ausente.
+- Falha por placeholder desconhecido.
+- Falha por `integer` inválido.
+- Mascaramento de `sensitive` em logs, stdout/stderr persistidos, comando exibido e metadados ativos.
 - Lock por módulo.
 - Independência entre módulos.
 - Persistência e leitura incremental de logs.
@@ -206,4 +242,3 @@ Dependências atuais em `requirements.txt`:
 - pytest
 
 Não introduza novas dependências sem necessidade clara. Prefira manter a aplicação simples e explícita.
-

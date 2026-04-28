@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sys
 from typing import Iterator
 
 from app import (
@@ -68,6 +70,39 @@ def test_stream_batch_persists_last_execution_log() -> None:
     assert records[0]["event"] == "status"
     assert records[0]["run_id"]
     assert records[-1]["event"] == "done"
+    assert records[-1]["status"] == "success"
+
+
+def test_stream_batch_masks_sensitive_values_in_persisted_log() -> None:
+    module = {
+        "id": "tri",
+        "name": "TRI",
+        "variables": {
+            "password": {
+                "type": "sensitive",
+                "value": "secret-value",
+            }
+        },
+        "plugins": [
+            {
+                "id": "leak_secret",
+                "type": "command_line",
+                "command": [
+                    sys.executable,
+                    "-c",
+                    "import sys; print(sys.argv[1])",
+                    "{password}",
+                ],
+            }
+        ],
+    }
+
+    list(stream_batch(module))
+    records = read_module_log("tri")
+    serialized_records = json.dumps(records, ensure_ascii=False)
+
+    assert "secret-value" not in serialized_records
+    assert "****" in serialized_records
     assert records[-1]["status"] == "success"
 
 

@@ -6,6 +6,7 @@ import pytest
 
 from plugins.command_line import CommandLinePlugin
 from plugins.base import PluginExecutionError
+from plugins.variables import prepare_command_plugin_config, validate_variable_definitions
 
 
 def collect(plugin: CommandLinePlugin) -> list[str]:
@@ -84,3 +85,125 @@ def test_command_line_plugin_fails_when_success_string_is_missing() -> None:
 def test_command_line_plugin_rejects_invalid_command_list() -> None:
     with pytest.raises(ValueError, match="non-empty strings"):
         CommandLinePlugin("invalid", {"command": ["echo", "ok", 1]})
+
+
+def test_variable_definitions_reject_invalid_schema() -> None:
+    with pytest.raises(ValueError, match="unsupported keys"):
+        validate_variable_definitions(
+            "tri",
+            {
+                "password": {
+                    "type": "sensitive",
+                    "value": "secret-value",
+                    "default": "fallback",
+                }
+            },
+        )
+
+
+def test_command_line_plugin_substitutes_string_variable_in_shell_command() -> None:
+    config = prepare_command_plugin_config(
+        {
+            "command": (
+                f"{sys.executable} -c \"import sys; print(sys.argv[1])\" "
+                "{message}"
+            )
+        },
+        {"message": {"type": "string", "value": "hello world"}},
+    )
+    plugin = CommandLinePlugin("with_string", config)
+
+    messages = collect(plugin)
+
+    assert any("hello world" in message for message in messages)
+
+
+def test_command_line_plugin_substitutes_integer_variable_in_command_list() -> None:
+    config = prepare_command_plugin_config(
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import sys; print(int(sys.argv[1]) + 1)",
+                "{limit}",
+            ]
+        },
+        {"limit": {"type": "integer", "value": "41"}},
+    )
+    plugin = CommandLinePlugin("with_integer", config)
+
+    messages = collect(plugin)
+
+    assert any("42" in message for message in messages)
+
+
+def test_command_line_plugin_resolves_environment_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BATCH_MESSAGE", "from-env")
+    config = prepare_command_plugin_config(
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import sys; print(sys.argv[1])",
+                "{message}",
+            ]
+        },
+        {"message": {"type": "string", "value": "$BATCH_MESSAGE"}},
+    )
+    plugin = CommandLinePlugin("with_env", config)
+
+    messages = collect(plugin)
+
+    assert any("from-env" in message for message in messages)
+
+
+def test_command_line_plugin_fails_when_environment_variable_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MISSING_BATCH_PASSWORD", raising=False)
+
+    with pytest.raises(ValueError, match="missing environment variable"):
+        prepare_command_plugin_config(
+            {"command": "echo {password}"},
+            {"password": {"type": "sensitive", "value": "$MISSING_BATCH_PASSWORD"}},
+        )
+
+
+def test_command_line_plugin_fails_on_unknown_placeholder() -> None:
+    with pytest.raises(ValueError, match="no configured variable"):
+        prepare_command_plugin_config(
+            {"command": "echo {missing}"},
+            {"message": {"type": "string", "value": "ok"}},
+        )
+
+
+def test_command_line_plugin_fails_on_invalid_integer_variable() -> None:
+    with pytest.raises(ValueError, match="must be an integer"):
+        prepare_command_plugin_config(
+            {"command": "echo {limit}"},
+            {"limit": {"type": "integer", "value": "ten"}},
+        )
+
+
+def test_command_line_plugin_masks_sensitive_values_in_logs_and_metadata() -> None:
+    metadata: dict[str, object] = {}
+    config = prepare_command_plugin_config(
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import sys; print(sys.argv[1])",
+                "{password}",
+            ]
+        },
+        {"password": {"type": "sensitive", "value": "secret-value"}},
+    )
+    plugin = CommandLinePlugin("with_secret", config)
+    plugin.set_runtime_context("tri", "run-id", metadata.update)
+
+    messages = collect(plugin)
+
+    assert any("****" in message for message in messages)
+    assert all("secret-value" not in message for message in messages)
+    assert "secret-value" not in str(metadata)
+    assert "****" in str(metadata)

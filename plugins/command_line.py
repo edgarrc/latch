@@ -14,6 +14,7 @@ from .base import (
     PluginKillError,
     PluginKilledError,
 )
+from .variables import mask_sensitive_text
 
 
 class CommandLinePlugin(BasePlugin):
@@ -24,6 +25,8 @@ class CommandLinePlugin(BasePlugin):
         self.command = config.get("command")
         self.error_contains = config.get("error_contains")
         self.success_contains = config.get("success_contains")
+        self.display_command = config.get("_display_command")
+        self.sensitive_values = tuple(config.get("_sensitive_values", ()))
         self._process: subprocess.Popen[str] | None = None
         self._process_group_id: int | None = None
         self._kill_requested = False
@@ -41,6 +44,10 @@ class CommandLinePlugin(BasePlugin):
             raise ValueError(f"Plugin {plugin_id!r} error_contains must be a string.")
         if self.success_contains is not None and not isinstance(self.success_contains, str):
             raise ValueError(f"Plugin {plugin_id!r} success_contains must be a string.")
+        if self.display_command is not None and not isinstance(self.display_command, str):
+            raise ValueError(f"Plugin {plugin_id!r} display command must be a string.")
+        if not all(isinstance(value, str) for value in self.sensitive_values):
+            raise ValueError(f"Plugin {plugin_id!r} sensitive values must be strings.")
 
     def run(self) -> Iterator[PluginEvent]:
         yield PluginEvent("info", f"Iniciando comando: {self._display_command()}")
@@ -59,7 +66,9 @@ class CommandLinePlugin(BasePlugin):
                 )
             except (OSError, TypeError, ValueError) as exc:
                 raise PluginExecutionError(
-                    f"Plugin {self.plugin_id!r} falhou ao iniciar comando: {exc}"
+                    self._mask_text(
+                        f"Plugin {self.plugin_id!r} falhou ao iniciar comando: {exc}"
+                    )
                 ) from exc
 
             process_group_id = os.getpgid(process.pid)
@@ -107,7 +116,7 @@ class CommandLinePlugin(BasePlugin):
 
                 combined_output.append(line)
                 level = "error" if stream_name == "stderr" else "output"
-                yield PluginEvent(level, line.rstrip("\n"), stream_name)
+                yield PluginEvent(level, self._mask_text(line.rstrip("\n")), stream_name)
 
             stdout_thread.join()
             stderr_thread.join()
@@ -121,8 +130,10 @@ class CommandLinePlugin(BasePlugin):
 
             if self.error_contains and self.error_contains in full_output:
                 raise PluginExecutionError(
-                    f"Plugin {self.plugin_id!r} falhou: encontrou a string de erro "
-                    f"{self.error_contains!r} no output."
+                    self._mask_text(
+                        f"Plugin {self.plugin_id!r} falhou: encontrou a string de erro "
+                        f"{self.error_contains!r} no output."
+                    )
                 )
 
             if exit_code != 0:
@@ -132,8 +143,10 @@ class CommandLinePlugin(BasePlugin):
 
             if self.success_contains and self.success_contains not in full_output:
                 raise PluginExecutionError(
-                    f"Plugin {self.plugin_id!r} falhou: a string de sucesso "
-                    f"{self.success_contains!r} não apareceu no output."
+                    self._mask_text(
+                        f"Plugin {self.plugin_id!r} falhou: a string de sucesso "
+                        f"{self.success_contains!r} não apareceu no output."
+                    )
                 )
 
             yield PluginEvent("success", f"Comando finalizado com sucesso: exit code {exit_code}")
@@ -216,6 +229,11 @@ class CommandLinePlugin(BasePlugin):
             output_queue.put((stream_name, None))
 
     def _display_command(self) -> str:
+        if self.display_command is not None:
+            return self.display_command
         if isinstance(self.command, list):
             return " ".join(str(part) for part in self.command)
         return self.command
+
+    def _mask_text(self, text: str) -> str:
+        return mask_sensitive_text(text, self.sensitive_values)
