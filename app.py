@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -12,7 +13,13 @@ import yaml
 from filelock import FileLock, Timeout
 from flask import Flask, Response, abort, jsonify, render_template, request, stream_with_context
 
-from plugins.base import BasePlugin, PluginEvent, PluginExecutionError
+from plugins.base import (
+    BasePlugin,
+    PluginEvent,
+    PluginExecutionError,
+    PluginKillError,
+    PluginKilledError,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -24,11 +31,24 @@ PLUGIN_TYPES = {
     "command_line": "plugins.command_line.CommandLinePlugin",
 }
 ACTIVE_MODULES: set[str] = set()
+ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
 ACTIVE_MODULES_LOCK = threading.Lock()
 
 LOCKS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 app = Flask(__name__)
+
+
+@dataclass
+class ActiveRun:
+    module_id: str
+    run_id: str
+    sequence: int = 0
+    current_plugin: BasePlugin | None = None
+    current_plugin_id: str | None = None
+    current_plugin_type: str | None = None
+    kill_requested: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @app.get("/")
@@ -117,6 +137,66 @@ def clear_module_logs(module_name: str) -> Response:
     return jsonify({"id": module_name, "cleared": True, "running": False})
 
 
+@app.post("/api/modules/<module_name>/kill")
+def kill_module(module_name: str) -> Response:
+    if module_name not in ALLOWED_MODULES:
+        abort(404)
+
+    active_run = get_active_run(module_name)
+    if active_run is None:
+        return jsonify(
+            {
+                "id": module_name,
+                "killed": False,
+                "running": False,
+                "message": "O módulo não está em execução.",
+            }
+        ), 409
+
+    plugin = active_run.current_plugin
+    if plugin is not None:
+        try:
+            plugin.kill()
+        except PluginKillError as exc:
+            append_active_log(
+                module_name,
+                "log",
+                {
+                    "level": "error",
+                    "plugin": active_run.current_plugin_id,
+                    "message": str(exc),
+                },
+            )
+            return jsonify(
+                {
+                    "id": module_name,
+                    "killed": False,
+                    "running": is_module_running(module_name),
+                    "message": str(exc),
+                }
+            ), 409
+
+    mark_kill_requested(module_name)
+    append_active_log(
+        module_name,
+        "log",
+        {
+            "level": "error",
+            "plugin": active_run.current_plugin_id,
+            "message": "Kill solicitado pelo usuário.",
+        },
+    )
+
+    return jsonify(
+        {
+            "id": module_name,
+            "killed": True,
+            "running": True,
+            "message": "Kill solicitado.",
+        }
+    )
+
+
 @app.get("/api/modules/<module_name>/run")
 def run_module(module_name: str) -> Response:
     module = load_module_config(module_name)
@@ -184,12 +264,112 @@ def is_module_running(module_name: str) -> bool:
         return False
 
 
-def set_module_active(module_name: str, active: bool) -> None:
+def get_active_run(module_name: str) -> ActiveRun | None:
     with ACTIVE_MODULES_LOCK:
-        if active:
-            ACTIVE_MODULES.add(module_name)
-        else:
-            ACTIVE_MODULES.discard(module_name)
+        return ACTIVE_RUNS.get(module_name)
+
+
+def create_active_run(module_name: str, run_id: str) -> ActiveRun:
+    active_run = ActiveRun(module_id=module_name, run_id=run_id)
+    with ACTIVE_MODULES_LOCK:
+        ACTIVE_MODULES.add(module_name)
+        ACTIVE_RUNS[module_name] = active_run
+    write_active_run_file(active_run)
+    return active_run
+
+
+def remove_active_run(module_name: str) -> None:
+    with ACTIVE_MODULES_LOCK:
+        ACTIVE_MODULES.discard(module_name)
+        ACTIVE_RUNS.pop(module_name, None)
+    active_run_path(module_name).unlink(missing_ok=True)
+
+
+def set_active_plugin(
+    module_name: str,
+    plugin: BasePlugin | None,
+    plugin_config: dict[str, Any] | None = None,
+) -> None:
+    with ACTIVE_MODULES_LOCK:
+        active_run = ACTIVE_RUNS.get(module_name)
+        if active_run is None:
+            return
+        active_run.current_plugin = plugin
+        active_run.current_plugin_id = plugin.plugin_id if plugin is not None else None
+        active_run.current_plugin_type = (
+            plugin_config.get("type") if plugin_config is not None else None
+        )
+        if plugin is None:
+            active_run.metadata = {}
+        snapshot = serialize_active_run(active_run)
+    write_active_run_snapshot(module_name, snapshot)
+
+
+def update_active_run_metadata(module_name: str, metadata: dict[str, Any]) -> None:
+    with ACTIVE_MODULES_LOCK:
+        active_run = ACTIVE_RUNS.get(module_name)
+        if active_run is None:
+            return
+        active_run.metadata.update(metadata)
+        snapshot = serialize_active_run(active_run)
+    write_active_run_snapshot(module_name, snapshot)
+
+
+def mark_kill_requested(module_name: str) -> None:
+    with ACTIVE_MODULES_LOCK:
+        active_run = ACTIVE_RUNS.get(module_name)
+        if active_run is None:
+            return
+        active_run.kill_requested = True
+        snapshot = serialize_active_run(active_run)
+    write_active_run_snapshot(module_name, snapshot)
+
+
+def get_active_kill_requested(module_name: str) -> bool:
+    with ACTIVE_MODULES_LOCK:
+        active_run = ACTIVE_RUNS.get(module_name)
+        return active_run.kill_requested if active_run is not None else False
+
+
+def append_active_log(module_name: str, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+    with ACTIVE_MODULES_LOCK:
+        active_run = ACTIVE_RUNS[module_name]
+        active_run.sequence += 1
+        record = build_log_record(active_run.run_id, active_run.sequence, event, payload)
+        snapshot = serialize_active_run(active_run)
+    append_module_log(module_name, record)
+    write_active_run_snapshot(module_name, snapshot)
+    return record
+
+
+def active_run_path(module_name: str) -> Path:
+    if module_name not in ALLOWED_MODULES:
+        abort(404)
+    return TEMP_DIR / f"active_{module_name}.json"
+
+
+def serialize_active_run(active_run: ActiveRun) -> dict[str, Any]:
+    return {
+        "module_id": active_run.module_id,
+        "run_id": active_run.run_id,
+        "sequence": active_run.sequence,
+        "current_plugin_id": active_run.current_plugin_id,
+        "current_plugin_type": active_run.current_plugin_type,
+        "kill_requested": active_run.kill_requested,
+        "metadata": active_run.metadata,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def write_active_run_file(active_run: ActiveRun) -> None:
+    write_active_run_snapshot(active_run.module_id, serialize_active_run(active_run))
+
+
+def write_active_run_snapshot(module_name: str, snapshot: dict[str, Any]) -> None:
+    active_run_path(module_name).write_text(
+        json.dumps(snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def module_log_path(module_name: str) -> Path:
@@ -262,43 +442,31 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
 
     run_id = uuid4().hex
     clear_module_log(module_id)
-    set_module_active(module_id, True)
-    sequence = 0
+    create_active_run(module_id, run_id)
 
     def emit(event: str, payload: dict[str, Any]) -> str:
-        nonlocal sequence
-        sequence += 1
-        record = build_log_record(run_id, sequence, event, payload)
-        append_module_log(module_id, record)
+        record = append_active_log(module_id, event, payload)
         return sse(event, record)
 
     try:
         yield emit("status", {"level": "info", "message": f"Iniciando batch {module['name']}."})
 
         for plugin_config in module["plugins"]:
-            plugin_id = plugin_config["id"]
-            yield emit(
-                "plugin_start",
-                {
-                    "level": "info",
-                    "plugin": plugin_id,
-                    "message": f"Executando plugin {plugin_id}.",
-                },
-            )
+            if get_active_kill_requested(module_id):
+                yield emit(
+                    "done",
+                    {
+                        "status": "killed",
+                        "level": "error",
+                        "message": f"Batch {module['name']} interrompido pelo usuário.",
+                    },
+                )
+                return
 
+            plugin_id = plugin_config["id"]
             try:
                 plugin = create_plugin(plugin_config)
-                for event in plugin.run():
-                    yield emit(
-                        "log",
-                        {
-                            "level": event.level,
-                            "plugin": plugin.plugin_id,
-                            "stream": event.stream,
-                            "message": event.message,
-                        },
-                    )
-            except (PluginExecutionError, ValueError) as exc:
+            except ValueError as exc:
                 yield emit(
                     "done",
                     {
@@ -310,6 +478,59 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
                 )
                 return
 
+            plugin.set_runtime_context(
+                module_id,
+                run_id,
+                lambda metadata, current_module_id=module_id: update_active_run_metadata(
+                    current_module_id,
+                    metadata,
+                ),
+            )
+            set_active_plugin(module_id, plugin, plugin_config)
+            yield emit(
+                "plugin_start",
+                {
+                    "level": "info",
+                    "plugin": plugin_id,
+                    "message": f"Executando plugin {plugin_id}.",
+                },
+            )
+
+            try:
+                for event in plugin.run():
+                    yield emit(
+                        "log",
+                        {
+                            "level": event.level,
+                            "plugin": plugin.plugin_id,
+                            "stream": event.stream,
+                            "message": event.message,
+                        },
+                    )
+            except PluginKilledError as exc:
+                yield emit(
+                    "done",
+                    {
+                        "status": "killed",
+                        "level": "error",
+                        "plugin": plugin_id,
+                        "message": str(exc),
+                    },
+                )
+                return
+            except (PluginExecutionError, PluginKillError, ValueError) as exc:
+                yield emit(
+                    "done",
+                    {
+                        "status": "failed",
+                        "level": "error",
+                        "plugin": plugin_id,
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            set_active_plugin(module_id, None)
             yield emit(
                 "plugin_done",
                 {
@@ -318,6 +539,17 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
                     "message": f"Plugin {plugin_id} concluído.",
                 },
             )
+
+        if get_active_kill_requested(module_id):
+            yield emit(
+                "done",
+                {
+                    "status": "killed",
+                    "level": "error",
+                    "message": f"Batch {module['name']} interrompido pelo usuário.",
+                },
+            )
+            return
 
         yield emit(
             "done",
@@ -337,7 +569,7 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
             },
         )
     finally:
-        set_module_active(module_id, False)
+        remove_active_run(module_id)
         lock.release()
 
 

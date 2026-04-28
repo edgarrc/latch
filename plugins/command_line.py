@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import os
 import queue
 import subprocess
 import threading
 from collections.abc import Iterator
 from typing import Any
 
-from .base import BasePlugin, PluginEvent, PluginExecutionError
+from .base import (
+    BasePlugin,
+    PluginEvent,
+    PluginExecutionError,
+    PluginKillError,
+    PluginKilledError,
+)
 
 
 class CommandLinePlugin(BasePlugin):
@@ -17,6 +24,10 @@ class CommandLinePlugin(BasePlugin):
         self.command = config.get("command")
         self.error_contains = config.get("error_contains")
         self.success_contains = config.get("success_contains")
+        self._process: subprocess.Popen[str] | None = None
+        self._process_group_id: int | None = None
+        self._kill_requested = False
+        self._process_lock = threading.Lock()
 
         if not isinstance(self.command, (str, list)) or not self.command:
             raise ValueError(f"Plugin {plugin_id!r} must define a non-empty command.")
@@ -44,11 +55,32 @@ class CommandLinePlugin(BasePlugin):
                     stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,
+                    start_new_session=True,
                 )
             except (OSError, TypeError, ValueError) as exc:
                 raise PluginExecutionError(
                     f"Plugin {self.plugin_id!r} falhou ao iniciar comando: {exc}"
                 ) from exc
+
+            process_group_id = os.getpgid(process.pid)
+            with self._process_lock:
+                self._process = process
+                self._process_group_id = process_group_id
+
+            self.update_runtime_metadata(
+                {
+                    "pid": process.pid,
+                    "pgid": process_group_id,
+                    "command": self._display_command(),
+                }
+            )
+            yield PluginEvent(
+                "info",
+                f"Processo iniciado: pid={process.pid}, pgid={process_group_id}",
+            )
+            if self._was_kill_requested():
+                self._kill_process_group(process_group_id)
+                yield PluginEvent("error", "Kill pendente aplicado ao processo recém-iniciado.")
 
             output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
             stdout_thread = threading.Thread(
@@ -82,6 +114,11 @@ class CommandLinePlugin(BasePlugin):
             exit_code = process.wait()
             full_output = "".join(combined_output)
 
+            if self._was_kill_requested():
+                raise PluginKilledError(
+                    f"Plugin {self.plugin_id!r} foi interrompido por solicitação do usuário."
+                )
+
             if self.error_contains and self.error_contains in full_output:
                 raise PluginExecutionError(
                     f"Plugin {self.plugin_id!r} falhou: encontrou a string de erro "
@@ -102,12 +139,68 @@ class CommandLinePlugin(BasePlugin):
             yield PluginEvent("success", f"Comando finalizado com sucesso: exit code {exit_code}")
         finally:
             if process is not None and process.poll() is None:
-                process.terminate()
+                process_group_id = self._process_group_id
+                if process_group_id is not None:
+                    subprocess.run(
+                        f"kill -TERM -{process_group_id}",
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                else:
+                    process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    if process_group_id is not None:
+                        subprocess.run(
+                            f"kill -KILL -{process_group_id}",
+                            shell=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                    else:
+                        process.kill()
                     process.wait()
+            with self._process_lock:
+                if self._process is process:
+                    self._process = None
+                    self._process_group_id = None
+
+    def kill(self) -> None:
+        with self._process_lock:
+            process = self._process
+            process_group_id = self._process_group_id
+            self._kill_requested = True
+
+        if process is None or process.poll() is not None or process_group_id is None:
+            self.update_runtime_metadata({"kill_requested": True, "kill_pending": True})
+            return
+
+        self._kill_process_group(process_group_id)
+        self.update_runtime_metadata({"kill_requested": True})
+
+    def _kill_process_group(self, process_group_id: int) -> None:
+        kill_command = f"kill -KILL -{process_group_id}"
+        result = subprocess.run(
+            kill_command,
+            shell=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            with self._process_lock:
+                self._kill_requested = False
+            raise PluginKillError(
+                f"Falha ao interromper plugin {self.plugin_id!r} com {kill_command!r}: "
+                f"{result.stderr.strip() or result.stdout.strip() or 'sem detalhes'}"
+            )
+        self.update_runtime_metadata({"kill_command": kill_command})
+
+    def _was_kill_requested(self) -> bool:
+        with self._process_lock:
+            return self._kill_requested
 
     @staticmethod
     def _read_stream(

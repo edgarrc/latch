@@ -1,6 +1,30 @@
 from __future__ import annotations
 
-from app import app, load_module_config, read_module_log, stream_batch
+from typing import Iterator
+
+from app import (
+    app,
+    create_active_run,
+    get_active_kill_requested,
+    load_module_config,
+    read_module_log,
+    remove_active_run,
+    set_active_plugin,
+    stream_batch,
+)
+from plugins.base import BasePlugin, PluginEvent
+
+
+class FakeKillablePlugin(BasePlugin):
+    def __init__(self) -> None:
+        super().__init__("fake_plugin", {"type": "fake"})
+        self.killed = False
+
+    def run(self) -> Iterator[PluginEvent]:
+        yield PluginEvent("info", "fake")
+
+    def kill(self) -> None:
+        self.killed = True
 
 
 def test_load_module_config_reads_configured_plugins() -> None:
@@ -104,3 +128,29 @@ def test_clear_module_logs_is_blocked_while_module_is_running() -> None:
 
     assert response.status_code == 409
     assert response.get_json()["cleared"] is False
+
+
+def test_kill_module_returns_conflict_when_module_is_not_running() -> None:
+    client = app.test_client()
+    response = client.post("/api/modules/tri/kill")
+
+    assert response.status_code == 409
+    assert response.get_json()["killed"] is False
+
+
+def test_kill_module_calls_active_plugin_kill() -> None:
+    plugin = FakeKillablePlugin()
+    create_active_run("tri", "test-run")
+    set_active_plugin("tri", plugin, {"type": "fake"})
+
+    try:
+        client = app.test_client()
+        response = client.post("/api/modules/tri/kill")
+        kill_requested = get_active_kill_requested("tri")
+    finally:
+        remove_active_run("tri")
+
+    assert response.status_code == 200
+    assert response.get_json()["killed"] is True
+    assert plugin.killed is True
+    assert kill_requested is True

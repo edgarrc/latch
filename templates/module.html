@@ -32,6 +32,7 @@
         </div>
         <div class="d-flex gap-2">
           <button id="clearButton" class="btn btn-outline-secondary" type="button" {% if module.running %}disabled{% endif %}>Clear</button>
+          <button id="killButton" class="btn btn-danger" type="button" {% if not module.running %}disabled{% endif %}>Kill</button>
           <button id="runButton" class="btn btn-primary" type="button" {% if module.running %}disabled{% endif %}>
             {% if module.running %}Executando...{% else %}Executar Batch{% endif %}
           </button>
@@ -66,6 +67,7 @@
     <script>
       const runButton = document.getElementById("runButton");
       const clearButton = document.getElementById("clearButton");
+      const killButton = document.getElementById("killButton");
       const consoleEl = document.getElementById("console");
       const statusBadge = document.getElementById("statusBadge");
       let eventSource = null;
@@ -75,6 +77,7 @@
       let logRequestEpoch = 0;
       let waitingForNewRun = false;
       let lastTerminalStatus = "";
+      let killRequested = false;
 
       function appendLog(payload) {
         if (payload.run_id && Number.isInteger(payload.sequence)) {
@@ -116,14 +119,23 @@
         if (running) {
           runButton.disabled = true;
           clearButton.disabled = true;
+          killButton.disabled = killRequested;
           runButton.textContent = "Executando...";
-          setStatus("Executando", "text-bg-primary");
+          if (killRequested) {
+            setStatus("Interrompendo", "text-bg-danger");
+          } else {
+            setStatus("Executando", "text-bg-primary");
+          }
         } else {
+          killRequested = false;
           runButton.disabled = false;
           clearButton.disabled = false;
+          killButton.disabled = true;
           runButton.textContent = "Executar Batch";
           if (lastTerminalStatus === "success") {
             setStatus("Concluído", "text-bg-success");
+          } else if (lastTerminalStatus === "killed") {
+            setStatus("Interrompido", "text-bg-danger");
           } else if (lastTerminalStatus === "failed") {
             setStatus("Falhou", "text-bg-danger");
           } else {
@@ -197,6 +209,7 @@
 
         resetConsole();
         lastTerminalStatus = "";
+        killRequested = false;
         waitingForNewRun = true;
         window.setTimeout(() => {
           waitingForNewRun = false;
@@ -205,6 +218,7 @@
 
         runButton.disabled = true;
         clearButton.disabled = true;
+        killButton.disabled = false;
         runButton.textContent = "Executando...";
         setStatus("Executando", "text-bg-primary");
         eventSource = new EventSource(`/api/modules/{{ module.id }}/run?t=${Date.now()}`);
@@ -221,21 +235,30 @@
           waitingForNewRun = false;
           appendLog(payload);
           lastTerminalStatus = payload.status || "";
+          killRequested = false;
           eventSource.close();
           eventSource = null;
 
           if (payload.status === "success") {
             runButton.disabled = false;
             clearButton.disabled = false;
+            killButton.disabled = true;
             runButton.textContent = "Executar Batch";
             setStatus("Concluído", "text-bg-success");
           } else if (payload.status === "locked") {
             resetConsole();
             setRunningState(true);
             refreshModuleLogs();
+          } else if (payload.status === "killed") {
+            runButton.disabled = false;
+            clearButton.disabled = false;
+            killButton.disabled = true;
+            runButton.textContent = "Executar Batch";
+            setStatus("Interrompido", "text-bg-danger");
           } else {
             runButton.disabled = false;
             clearButton.disabled = false;
+            killButton.disabled = true;
             runButton.textContent = "Executar Batch";
             setStatus("Falhou", "text-bg-danger");
           }
@@ -243,11 +266,13 @@
 
         eventSource.onerror = () => {
           waitingForNewRun = false;
+          killRequested = false;
           appendLog({ level: "error", message: "Conexão de log interrompida." });
           eventSource.close();
           eventSource = null;
           runButton.disabled = false;
           clearButton.disabled = false;
+          killButton.disabled = true;
           runButton.textContent = "Executar Batch";
           setStatus("Erro", "text-bg-danger");
           refreshModuleLogs();
@@ -289,6 +314,41 @@
           if (!eventSource) {
             clearButton.disabled = runButton.disabled;
           }
+        }
+      });
+
+      killButton.addEventListener("click", async () => {
+        if (killButton.disabled) {
+          return;
+        }
+
+        killButton.disabled = true;
+        killRequested = true;
+        setStatus("Interrompendo", "text-bg-danger");
+
+        try {
+          const response = await fetch("/api/modules/{{ module.id }}/kill", {
+            method: "POST",
+            cache: "no-store",
+          });
+
+          if (!response.ok) {
+            const payload = await response.json();
+            appendLog({
+              level: "error",
+              message: payload.message || "Não foi possível interromper o módulo.",
+            });
+            killRequested = false;
+            killButton.disabled = false;
+            refreshModuleStatus();
+            return;
+          }
+
+          refreshModuleLogs();
+        } catch (_error) {
+          killRequested = false;
+          appendLog({ level: "error", message: "Não foi possível interromper o módulo." });
+          killButton.disabled = false;
         }
       });
 

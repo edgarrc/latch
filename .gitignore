@@ -6,3 +6,4 @@ venv/
 .codex
 .pip-cache/
 temp/*.jsonl
+temp/active_*.json
