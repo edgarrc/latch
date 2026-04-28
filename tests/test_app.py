@@ -11,6 +11,7 @@ from app import (
     active_run_path,
     app,
     create_active_run,
+    discover_module_names,
     get_active_kill_requested,
     load_module_config,
     read_module_log,
@@ -54,7 +55,21 @@ def test_load_module_config_reads_configured_plugins() -> None:
     module = load_module_config("tri")
 
     assert module["id"] == "tri"
+    assert module["description"]
     assert module["plugins"][0]["id"] == "preparar_tri"
+    assert module["plugins"][0]["description"]
+
+
+def test_discover_module_names_reads_yaml_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(app_module, "MODULES_DIR", tmp_path)
+    (tmp_path / "zeta.yaml").write_text("name: Zeta\nplugins: []\n", encoding="utf-8")
+    (tmp_path / "alpha.yaml").write_text("name: Alpha\nplugins: []\n", encoding="utf-8")
+    (tmp_path / "bad.name.yaml").write_text("name: Bad\nplugins: []\n", encoding="utf-8")
+
+    assert discover_module_names() == ["alpha", "zeta"]
 
 
 def test_module_page_renders_plugin_status_column() -> None:
@@ -63,8 +78,142 @@ def test_module_page_renders_plugin_status_column() -> None:
 
     assert response.status_code == 200
     assert b"Status" in response.data
+    assert b"Descri" in response.data
     assert b"data-plugin-id=\"preparar_tri\"" in response.data
     assert "Não iniciado".encode() in response.data
+
+
+def test_index_renders_add_and_edit_actions() -> None:
+    client = app.test_client()
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert b"Adicionar" in response.data
+    assert b"/modules/tri/edit" in response.data
+
+
+def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: desconhecido\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["valid"] is False
+
+
+def test_create_module_endpoint_persists_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(app_module, "MODULES_DIR", tmp_path)
+
+    client = app.test_client()
+    response = client.post(
+        "/api/modules",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "description: Modulo novo\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    description: Etapa inicial\n"
+                "    command: echo ok\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.get_json()["saved"] is True
+    assert (tmp_path / "novo.yaml").exists()
+    assert "description: Modulo novo" in (tmp_path / "novo.yaml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_update_module_endpoint_blocks_running_module() -> None:
+    create_active_run("tri", "test-run")
+
+    try:
+        client = app.test_client()
+        response = client.put(
+            "/api/modules/tri",
+            json={
+                "content": (
+                    "name: TRI\n"
+                    "plugins:\n"
+                    "  - id: etapa\n"
+                    "    type: command_line\n"
+                    "    command: echo ok\n"
+                ),
+            },
+        )
+    finally:
+        remove_active_run("tri")
+
+    assert response.status_code == 409
+    assert response.get_json()["saved"] is False
+
+
+def test_delete_module_endpoint_removes_module_and_temporary_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir = tmp_path / "modules"
+    temp_dir = tmp_path / "temp"
+    locks_dir = tmp_path / "locks"
+    modules_dir.mkdir()
+    temp_dir.mkdir()
+    locks_dir.mkdir()
+    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
+    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
+    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+
+    module_path = modules_dir / "remover.yaml"
+    log_path = temp_dir / "temp_remover.jsonl"
+    active_path = temp_dir / "active_remover.json"
+    lock_path = locks_dir / "remover.lock"
+    module_path.write_text(
+        "name: Remover\nplugins:\n  - id: etapa\n    type: command_line\n    command: echo ok\n",
+        encoding="utf-8",
+    )
+    log_path.write_text("log\n", encoding="utf-8")
+    active_path.write_text("{}", encoding="utf-8")
+    lock_path.write_text("", encoding="utf-8")
+
+    client = app.test_client()
+    response = client.delete("/api/modules/remover")
+
+    assert response.status_code == 200
+    assert response.get_json()["deleted"] is True
+    assert not module_path.exists()
+    assert not log_path.exists()
+    assert not active_path.exists()
+    assert not lock_path.exists()
+
+
+def test_delete_module_endpoint_blocks_running_module() -> None:
+    create_active_run("tri", "test-run")
+
+    try:
+        client = app.test_client()
+        response = client.delete("/api/modules/tri")
+    finally:
+        remove_active_run("tri")
+
+    assert response.status_code == 409
+    assert response.get_json()["deleted"] is False
 
 
 def test_stream_batch_reports_locked_module() -> None:

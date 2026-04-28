@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent
 MODULES_DIR = BASE_DIR / "modules"
 LOCKS_DIR = BASE_DIR / "locks"
 TEMP_DIR = BASE_DIR / "temp"
-ALLOWED_MODULES = {"tri", "analitico"}
+MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
     "command_line": "plugins.command_line.CommandLinePlugin",
 }
@@ -57,7 +58,33 @@ class ActiveRun:
 def index() -> str:
     return render_template(
         "index.html",
-        modules=[module_with_status(module_name) for module_name in sorted(ALLOWED_MODULES)],
+        modules=[module_with_status(module_name) for module_name in discover_module_names()],
+    )
+
+
+@app.get("/modules/new")
+def new_module_page() -> str:
+    return render_template(
+        "module_edit.html",
+        mode="create",
+        module_id="",
+        module_name="",
+        module_running=False,
+        yaml_content=default_module_yaml(),
+    )
+
+
+@app.get("/modules/<module_name>/edit")
+def edit_module_page(module_name: str) -> str:
+    ensure_module_exists(module_name)
+    module = module_with_status(module_name)
+    return render_template(
+        "module_edit.html",
+        mode="edit",
+        module_id=module_name,
+        module_name=module["name"],
+        module_running=module["running"],
+        yaml_content=read_module_yaml(module_name),
     )
 
 
@@ -73,7 +100,7 @@ def modules_status() -> Response:
         {
             "modules": {
                 module_name: {"running": is_module_running(module_name)}
-                for module_name in sorted(ALLOWED_MODULES)
+                for module_name in discover_module_names()
             }
         }
     )
@@ -81,15 +108,120 @@ def modules_status() -> Response:
 
 @app.get("/api/modules/<module_name>/status")
 def module_status(module_name: str) -> Response:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
     return jsonify({"id": module_name, "running": is_module_running(module_name)})
+
+
+@app.post("/api/modules/validate")
+def validate_module() -> Response:
+    payload = request.get_json(silent=True) or {}
+    module_id = payload.get("module_id") or "new_module"
+    content = payload.get("content")
+    if not isinstance(content, str):
+        return jsonify({"valid": False, "message": "O YAML do módulo é obrigatório."}), 400
+
+    try:
+        validate_module_id(str(module_id))
+        config = parse_module_yaml(content)
+        module = validate_module_config(str(module_id), config)
+    except ValueError as exc:
+        return jsonify({"valid": False, "message": str(exc)}), 400
+
+    return jsonify(
+        {
+            "valid": True,
+            "message": "Configuração válida.",
+            "module": {
+                "id": module["id"],
+                "name": module["name"],
+                "plugins": len(module["plugins"]),
+            },
+        }
+    )
+
+
+@app.post("/api/modules")
+def create_module_config() -> Response:
+    payload = request.get_json(silent=True) or {}
+    module_id = payload.get("module_id")
+    content = payload.get("content")
+    if not isinstance(module_id, str) or not module_id:
+        return jsonify({"saved": False, "message": "Informe o ID do módulo."}), 400
+    if not isinstance(content, str):
+        return jsonify({"saved": False, "message": "O YAML do módulo é obrigatório."}), 400
+
+    try:
+        validate_module_id(module_id)
+    except ValueError as exc:
+        return jsonify({"saved": False, "message": str(exc)}), 400
+
+    config_path = module_config_path(module_id)
+    if config_path.exists():
+        return jsonify({"saved": False, "message": "Já existe um módulo com esse ID."}), 409
+
+    try:
+        config = parse_module_yaml(content)
+        module = validate_module_config(module_id, config)
+    except ValueError as exc:
+        return jsonify({"saved": False, "message": str(exc)}), 400
+
+    write_module_config(module_id, module)
+    return jsonify(
+        {
+            "saved": True,
+            "id": module_id,
+            "message": "Módulo criado.",
+            "redirect": f"/modules/{module_id}/edit",
+        }
+    ), 201
+
+
+@app.put("/api/modules/<module_name>")
+def update_module_config(module_name: str) -> Response:
+    ensure_module_exists(module_name)
+    if is_module_running(module_name):
+        return jsonify(
+            {
+                "saved": False,
+                "running": True,
+                "message": "Não é possível salvar enquanto o módulo está em execução.",
+            }
+        ), 409
+
+    payload = request.get_json(silent=True) or {}
+    content = payload.get("content")
+    if not isinstance(content, str):
+        return jsonify({"saved": False, "message": "O YAML do módulo é obrigatório."}), 400
+
+    try:
+        config = parse_module_yaml(content)
+        module = validate_module_config(module_name, config)
+    except ValueError as exc:
+        return jsonify({"saved": False, "message": str(exc)}), 400
+
+    write_module_config(module_name, module)
+    return jsonify({"saved": True, "id": module_name, "message": "Módulo salvo."})
+
+
+@app.delete("/api/modules/<module_name>")
+def delete_module_config(module_name: str) -> Response:
+    ensure_module_exists(module_name)
+    if is_module_running(module_name):
+        return jsonify(
+            {
+                "deleted": False,
+                "running": True,
+                "message": "Não é possível excluir enquanto o módulo está em execução.",
+            }
+        ), 409
+
+    delete_module_files(module_name)
+    return jsonify({"deleted": True, "id": module_name, "message": "Módulo excluído."})
 
 
 @app.get("/api/modules/<module_name>/logs")
 def module_logs(module_name: str) -> Response:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
 
     since = request.args.get("since", default=0, type=int) or 0
     current_run_id = request.args.get("run_id", default="", type=str)
@@ -122,8 +254,7 @@ def module_logs(module_name: str) -> Response:
 
 @app.post("/api/modules/<module_name>/logs/clear")
 def clear_module_logs(module_name: str) -> Response:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
 
     if is_module_running(module_name):
         return jsonify(
@@ -141,8 +272,7 @@ def clear_module_logs(module_name: str) -> Response:
 
 @app.post("/api/modules/<module_name>/kill")
 def kill_module(module_name: str) -> Response:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
 
     active_run = get_active_run(module_name)
     if active_run is None:
@@ -212,36 +342,162 @@ def run_module(module_name: str) -> Response:
     )
 
 
-def load_module_config(module_name: str) -> dict[str, Any]:
-    if module_name not in ALLOWED_MODULES:
+def discover_module_names() -> list[str]:
+    module_names = [
+        path.stem
+        for path in MODULES_DIR.glob("*.yaml")
+        if path.is_file() and MODULE_ID_RE.fullmatch(path.stem)
+    ]
+    return sorted(module_names)
+
+
+def validate_module_id(module_name: str) -> None:
+    if not MODULE_ID_RE.fullmatch(module_name):
+        raise ValueError(
+            "O ID do módulo deve conter apenas letras, números, '_' ou '-'."
+        )
+
+
+def module_config_path(module_name: str) -> Path:
+    validate_module_id(module_name)
+    return MODULES_DIR / f"{module_name}.yaml"
+
+
+def ensure_module_exists(module_name: str) -> None:
+    try:
+        config_path = module_config_path(module_name)
+    except ValueError:
+        abort(404)
+    if not config_path.exists():
         abort(404)
 
-    config_path = MODULES_DIR / f"{module_name}.yaml"
+
+def read_module_yaml(module_name: str) -> str:
+    ensure_module_exists(module_name)
+    return module_config_path(module_name).read_text(encoding="utf-8")
+
+
+def default_module_yaml() -> str:
+    return (
+        "name: Novo módulo\n"
+        "description: Descreva o que este módulo faz.\n"
+        "plugins:\n"
+        "  - id: primeira_etapa\n"
+        "    type: command_line\n"
+        "    description: Descreva esta etapa.\n"
+        "    command: \"echo primeira etapa\"\n"
+        "    error_contains: \"ERROR\"\n"
+        "    success_contains:\n"
+    )
+
+
+def parse_module_yaml(content: str) -> dict[str, Any]:
+    try:
+        config = yaml.safe_load(content) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"YAML inválido: {exc}") from exc
+
+    if not isinstance(config, dict):
+        raise ValueError("O YAML do módulo deve ser um objeto.")
+    return config
+
+
+def validate_optional_text(config: dict[str, Any], key: str, context: str) -> str:
+    value = config.get(key, "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{context} {key!r} deve ser texto.")
+    return value
+
+
+def validate_module_config(
+    module_name: str,
+    config: dict[str, Any],
+    *,
+    instantiate_plugins: bool = True,
+) -> dict[str, Any]:
+    name = config.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"Module {module_name!r} must define a non-empty name.")
+
+    description = validate_optional_text(config, "description", f"Module {module_name!r}")
+    plugins = config.get("plugins")
+    if not isinstance(plugins, list) or not plugins:
+        raise ValueError(f"Module {module_name!r} must define a non-empty plugins list.")
+
+    variables = validate_variable_definitions(module_name, config.get("variables"))
+    validated_plugins: list[dict[str, Any]] = []
+    plugin_ids: set[str] = set()
+    for index, plugin in enumerate(plugins, start=1):
+        if not isinstance(plugin, dict):
+            raise ValueError(f"Plugin #{index} in module {module_name!r} must be an object.")
+
+        plugin_id = plugin.get("id")
+        if not isinstance(plugin_id, str) or not plugin_id:
+            raise ValueError(f"Plugin #{index} in module {module_name!r} must define id.")
+        if plugin_id in plugin_ids:
+            raise ValueError(f"Plugin {plugin_id!r} is duplicated in module {module_name!r}.")
+        plugin_ids.add(plugin_id)
+
+        plugin_type = plugin.get("type")
+        if not isinstance(plugin_type, str) or not plugin_type:
+            raise ValueError(f"Plugin {plugin_id!r} in module {module_name!r} must define type.")
+        if plugin_type not in PLUGIN_TYPES:
+            raise ValueError(f"Tipo de plugin desconhecido: {plugin_type!r}.")
+        validate_optional_text(plugin, "description", f"Plugin {plugin_id!r}")
+
+        if instantiate_plugins:
+            create_plugin(plugin, variables)
+        validated_plugins.append(dict(plugin))
+
+    return {
+        "id": module_name,
+        "name": name,
+        "description": description,
+        "variables": variables,
+        "plugins": validated_plugins,
+    }
+
+
+def dump_module_yaml(module: dict[str, Any]) -> str:
+    config: dict[str, Any] = {
+        "name": module["name"],
+    }
+    if module.get("description"):
+        config["description"] = module["description"]
+    if module.get("variables"):
+        config["variables"] = module["variables"]
+    config["plugins"] = module["plugins"]
+    return yaml.safe_dump(
+        config,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+
+
+def write_module_config(module_name: str, module: dict[str, Any]) -> None:
+    module_config_path(module_name).write_text(dump_module_yaml(module), encoding="utf-8")
+
+
+def delete_module_files(module_name: str) -> None:
+    module_config_path(module_name).unlink(missing_ok=True)
+    (TEMP_DIR / f"temp_{module_name}.jsonl").unlink(missing_ok=True)
+    (TEMP_DIR / f"active_{module_name}.json").unlink(missing_ok=True)
+    (LOCKS_DIR / f"{module_name}.lock").unlink(missing_ok=True)
+
+
+def load_module_config(module_name: str) -> dict[str, Any]:
+    ensure_module_exists(module_name)
+    config_path = module_config_path(module_name)
     if not config_path.exists():
         abort(404)
 
     with config_path.open("r", encoding="utf-8") as config_file:
-        config = yaml.safe_load(config_file) or {}
+        config = parse_module_yaml(config_file.read())
 
-    plugins = config.get("plugins")
-    if not isinstance(plugins, list):
-        raise ValueError(f"Module {module_name!r} must define a plugins list.")
-    variables = validate_variable_definitions(module_name, config.get("variables"))
-
-    for index, plugin in enumerate(plugins, start=1):
-        if not isinstance(plugin, dict):
-            raise ValueError(f"Plugin #{index} in module {module_name!r} must be an object.")
-        if not plugin.get("id"):
-            raise ValueError(f"Plugin #{index} in module {module_name!r} must define id.")
-        if not plugin.get("type"):
-            raise ValueError(f"Plugin {plugin['id']!r} in module {module_name!r} must define type.")
-
-    return {
-        "id": module_name,
-        "name": config.get("name", module_name),
-        "variables": variables,
-        "plugins": plugins,
-    }
+    return validate_module_config(module_name, config, instantiate_plugins=False)
 
 
 def module_with_status(module_name: str) -> dict[str, Any]:
@@ -251,8 +507,7 @@ def module_with_status(module_name: str) -> dict[str, Any]:
 
 
 def is_module_running(module_name: str) -> bool:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
 
     with ACTIVE_MODULES_LOCK:
         if module_name in ACTIVE_MODULES:
@@ -380,8 +635,7 @@ def append_active_log(module_name: str, event: str, payload: dict[str, Any]) -> 
 
 
 def active_run_path(module_name: str) -> Path:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
     return TEMP_DIR / f"active_{module_name}.json"
 
 
@@ -411,8 +665,7 @@ def write_active_run_snapshot(module_name: str, snapshot: dict[str, Any]) -> Non
 
 
 def module_log_path(module_name: str) -> Path:
-    if module_name not in ALLOWED_MODULES:
-        abort(404)
+    ensure_module_exists(module_name)
     return TEMP_DIR / f"temp_{module_name}.jsonl"
 
 

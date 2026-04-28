@@ -1,4 +1,5 @@
 name: Analítico
+description: Demonstra variáveis string, integer e sensitive em comandos analíticos.
 variables:
   nome_rotina:
     type: string
@@ -10,28 +11,33 @@ variables:
     type: sensitive
     value: segredo_analitico_demo
 plugins:
-  - id: echo_variavel_string
-    type: command_line
-    command: "echo Variavel string: {nome_rotina}"
-    error_contains: "ERROR"
-    success_contains: "analitico"
-  - id: echo_variavel_integer
-    type: command_line
-    command: "echo Variavel integer: {limite_linhas}"
-    error_contains: "ERROR"
-    success_contains: "1000"
-  - id: echo_variavel_sensitive
-    type: command_line
-    command: "echo Variavel sensitive: {senha_demo}"
-    error_contains: "ERROR"
-    success_contains: "segredo_analitico_demo"
-  - id: sleep
-    type: command_line
-    command: "sleep 10"
-    error_contains: 
-    success_contains:
-  - id: sleep2
-    type: command_line
-    command: "sleep 10"
-    error_contains:
-    success_contains:
+- id: echo_variavel_string
+  type: command_line
+  description: Exibe uma variável textual substituída no comando.
+  command: 'echo Variavel string: {nome_rotina}'
+  error_contains: ERROR
+  success_contains: analitico
+- id: echo_variavel_integer
+  type: command_line
+  description: Exibe uma variável inteira substituída no comando.
+  command: 'echo Variavel integer: {limite_linhas}'
+  error_contains: ERROR
+  success_contains: '1000'
+- id: echo_variavel_sensitive
+  type: command_line
+  description: Executa comando com variável sensível mascarada nos logs.
+  command: 'echo Variavel sensitive: {senha_demo}'
+  error_contains: ERROR
+  success_contains: segredo_analitico_demo
+- id: sleep
+  type: command_line
+  description: Simula uma etapa longa 10s.
+  command: sleep 10
+  error_contains: null
+  success_contains: null
+- id: sleep2
+  type: command_line
+  description: Simula uma segunda etapa longa.
+  command: sleep 10
+  error_contains: null
+  success_contains: null

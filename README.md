@@ -22,6 +22,8 @@ Casos de uso típicos:
 
 - Módulos acessíveis por rota, como `/tri` e `/analitico`.
 - Configuração de plugins por YAML.
+- Criação e edição de módulos pela interface web.
+- Validação de YAML antes de salvar.
 - Variáveis por módulo com placeholders em comandos.
 - Suporte a variáveis de ambiente e valores sensíveis mascarados.
 - Execução sequencial de plugins.
@@ -61,6 +63,7 @@ Casos de uso típicos:
 │   └── variables.py
 ├── templates/
 │   ├── index.html
+│   ├── module_edit.html
 │   └── module.html
 ├── locks/
 ├── temp/
@@ -72,25 +75,30 @@ Casos de uso típicos:
 
 ## Configuração de Módulos
 
-Cada módulo é definido em `modules/<nome>.yaml`.
+Cada módulo é definido em `modules/<nome>.yaml`. O nome do arquivo, sem `.yaml`, é o ID do módulo e deve conter apenas letras, números, `_` ou `-`.
 
 Exemplo:
 
 ```yaml
 name: Analítico
+description: Executa as etapas analíticas do batch.
 plugins:
   - id: preparar_analitico
     type: command_line
+    description: Prepara o ambiente analítico.
     command: "echo Preparando modulo analitico"
     error_contains: "ERROR"
     success_contains: "analitico"
 
   - id: processar_analitico_com_sleep
     type: command_line
+    description: Processa o batch analítico e valida a conclusão.
     command: "sleep 30 && echo Batch analitico concluido"
     error_contains: "ERROR"
     success_contains: "concluido"
 ```
+
+Use `description` no módulo para explicar o objetivo geral e em cada plugin para explicar o que a etapa faz.
 
 ### Variáveis de Módulo
 
@@ -176,6 +184,18 @@ Novos plugins devem herdar de `BasePlugin` e implementar:
 - `kill()`: interrompe a execução ativa do plugin.
 
 O contrato completo e as regras de arquitetura estão documentados em `AGENT.md`.
+
+## Edição de Módulos
+
+A página principal possui o botão `Adicionar` e cada linha possui `Editar`.
+
+A tela de edição trabalha com YAML bruto e oferece:
+
+- `Validate`: valida sintaxe YAML, campos obrigatórios, tipos de plugin, variáveis e placeholders sem persistir.
+- `Salvar`: valida novamente e grava em `modules/<nome>.yaml`.
+- `Excluir`: remove o YAML do módulo e arquivos temporários relacionados.
+
+O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch. A validação continua disponível.
 
 ## Status das Etapas
 

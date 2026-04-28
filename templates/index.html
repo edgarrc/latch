@@ -10,6 +10,7 @@
     <main class="container py-4">
       <div class="d-flex align-items-center justify-content-between mb-4">
         <h1 class="h3 mb-0">Gerenciador Batch</h1>
+        <a class="btn btn-primary" href="/modules/new">Adicionar</a>
       </div>
 
       <div class="table-responsive">
@@ -25,7 +26,12 @@
           <tbody>
             {% for module in modules %}
               <tr data-module-id="{{ module.id }}">
-                <td class="fw-semibold">{{ module.name }}</td>
+                <td>
+                  <div class="fw-semibold">{{ module.name }}</div>
+                  {% if module.description %}
+                    <div class="small text-secondary">{{ module.description }}</div>
+                  {% endif %}
+                </td>
                 <td class="text-center">{{ module.plugins | length }}</td>
                 <td class="text-center">
                   <span class="badge module-status {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
@@ -33,7 +39,10 @@
                   </span>
                 </td>
                 <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary" href="/{{ module.id }}">Abrir</a>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Ações do módulo">
+                    <a class="btn btn-outline-primary" href="/{{ module.id }}">Abrir</a>
+                    <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
+                  </div>
                 </td>
               </tr>
             {% endfor %}

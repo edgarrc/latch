@@ -1,0 +1,9 @@
+name: Novo módulo
+description: Descreva o que este módulo faz.
+plugins:
+- id: primeira_etapa
+  type: command_line
+  description: Descreva esta etapa.
+  command: echo primeira etapa
+  error_contains: ERROR
+  success_contains: null

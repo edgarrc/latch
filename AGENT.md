@@ -31,19 +31,22 @@ Estrutura principal:
 
 Módulos suportados:
 
-- `tri`, exposto em `/tri`.
-- `analitico`, exposto em `/analitico`.
+- Todo arquivo válido em `modules/<module>.yaml` é descoberto automaticamente.
+- O ID do módulo é o nome do arquivo sem `.yaml` e deve conter apenas letras, números, `_` ou `-`.
+- Cada módulo é exposto em `/<module>`.
 
 Configuração de módulo:
 
 - Cada módulo possui um YAML em `modules/<module>.yaml`.
-- O YAML define `name`, opcionalmente `variables`, e a lista ordenada `plugins`.
+- O YAML define `name`, opcionalmente `description`, opcionalmente `variables`, e a lista ordenada `plugins`.
+- Cada plugin pode declarar `description` textual para explicar a etapa.
 - A ordem da lista é a ordem exata de execução.
 
 Exemplo:
 
 ```yaml
 name: Analítico
+description: Executa consulta analítica no ClickHouse.
 variables:
   database:
     type: string
@@ -57,6 +60,7 @@ variables:
 plugins:
   - id: processar_analitico
     type: command_line
+    description: Consulta eventos analíticos respeitando o limite configurado.
     command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM eventos LIMIT {batch_limit}'"
     error_contains: "ERROR"
 ```
@@ -82,7 +86,12 @@ Variáveis de módulo:
 - Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
 - Módulos diferentes podem executar em paralelo.
 - A página principal lista módulos em formato tabular, com status em coluna própria.
+- A página principal permite adicionar módulos e editar módulos existentes.
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
+- A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão.
+- `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos.
+- `Save` persiste em `modules/<module>.yaml` e é bloqueado enquanto o módulo está em execução.
+- A exclusão remove `modules/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
 - Status por etapa:
   - `Não iniciado`: estado inicial da tela, antes de uma execução ou depois de limpar logs.
   - `Enfileirado`: etapa futura dentro da execução atual.
@@ -166,10 +175,15 @@ Validações:
 Rotas principais:
 
 - `GET /`: página principal com tabela de módulos.
-- `GET /tri`: página do módulo TRI.
-- `GET /analitico`: página do módulo analítico.
+- `GET /modules/new`: tela para criar módulo.
+- `GET /modules/<module>/edit`: tela para editar módulo.
+- `GET /<module>`: página do módulo.
 - `GET /api/modules/status`: status de todos os módulos.
 - `GET /api/modules/<module>/status`: status de um módulo.
+- `POST /api/modules/validate`: valida YAML de módulo sem persistir.
+- `POST /api/modules`: cria módulo em `modules/<module>.yaml`.
+- `PUT /api/modules/<module>`: salva YAML de módulo existente.
+- `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados.
 - `GET /api/modules/<module>/run`: inicia execução via SSE.
 - `GET /api/modules/<module>/logs`: lê logs persistidos incrementalmente.
 - `POST /api/modules/<module>/logs/clear`: limpa logs quando parado.
@@ -248,6 +262,12 @@ Manter cobertura para:
 - Kill bloqueado quando parado.
 - Kill chamando `plugin.kill()` quando ativo.
 - `command_line` gravando PID/PGID e encerrando como `killed`.
+- Descoberta dinâmica de módulos em `modules/*.yaml`.
+- Validação de YAML de módulo sem persistir.
+- Criação e edição de módulo persistindo em `modules/<module>.yaml`.
+- Bloqueio de salvamento quando o módulo está em execução.
+- Exclusão de módulo removendo YAML, log temporário, execução ativa temporária e lock.
+- Bloqueio de exclusão quando o módulo está em execução.
 
 Ao adicionar novos tipos de plugin, inclua testes específicos para `run()` e `kill()`.
 

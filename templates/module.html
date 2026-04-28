@@ -33,6 +33,9 @@
         <div>
           <a class="link-secondary text-decoration-none" href="/">← Módulos</a>
           <h1 class="h3 mt-2 mb-0">{{ module.name }}</h1>
+          {% if module.description %}
+            <p class="text-secondary mb-0 mt-1">{{ module.description }}</p>
+          {% endif %}
         </div>
         <div class="d-flex gap-2">
           <button id="clearButton" class="btn btn-outline-secondary" type="button" {% if module.running %}disabled{% endif %}>Clear</button>
@@ -51,6 +54,7 @@
               <tr>
                 <th scope="col" class="text-secondary fw-semibold">#</th>
                 <th scope="col" class="text-secondary fw-semibold">Etapa</th>
+                <th scope="col" class="text-secondary fw-semibold">Descrição</th>
                 <th scope="col" class="text-secondary fw-semibold">Tipo</th>
                 <th scope="col" class="text-secondary fw-semibold text-end">Status</th>
               </tr>
@@ -60,6 +64,7 @@
                 <tr>
                   <td class="text-secondary">{{ loop.index }}</td>
                   <td class="fw-semibold">{{ plugin.id }}</td>
+                  <td class="text-secondary small">{{ plugin.description or "" }}</td>
                   <td class="text-secondary small">{{ plugin.type }}</td>
                   <td class="text-end">
                     <span
