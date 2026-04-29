@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import app as app_module
 import json
+import queue
 import sys
+import time
 from typing import Iterator
 
 import pytest
@@ -65,6 +67,24 @@ def parse_sse_data(event: str) -> dict[str, object]:
     return json.loads(data_line.removeprefix("data: "))
 
 
+def wait_for_event(subscriber: queue.Queue[app_module.AppEvent]) -> app_module.AppEvent:
+    return subscriber.get(timeout=1)
+
+
+def wait_for_event_reason(
+    subscriber: queue.Queue[app_module.AppEvent],
+    reason: str,
+) -> app_module.AppEvent:
+    deadline = time.monotonic() + 1
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise queue.Empty
+        event = subscriber.get(timeout=remaining)
+        if event.reason == reason:
+            return event
+
+
 def enable_auth_with_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(app_module, "SETTINGS_PATH", tmp_path / "settings.yaml")
     app.config["AUTH_DISABLED"] = False
@@ -76,6 +96,57 @@ def write_auth_settings(password: str = "secret") -> dict[str, str]:
     app_module.write_settings(settings)
     app.secret_key = settings["secret_key"]
     return settings
+
+
+def test_app_event_hub_publishes_and_replays_events() -> None:
+    event_hub = app_module.AppEventHub(history_size=10)
+    subscriber = event_hub.subscribe()
+
+    event = event_hub.publish(
+        scope="module",
+        module_id="tri",
+        resources=["logs"],
+        reason="test_event",
+    )
+
+    assert wait_for_event(subscriber) == event
+    event_hub.unsubscribe(subscriber)
+
+    replay_subscriber = event_hub.subscribe(str(event.id - 1))
+    assert wait_for_event(replay_subscriber) == event
+    event_hub.unsubscribe(replay_subscriber)
+
+    current_subscriber = event_hub.subscribe(str(event.id))
+    with pytest.raises(queue.Empty):
+        current_subscriber.get(timeout=0.01)
+    event_hub.unsubscribe(current_subscriber)
+
+
+def test_application_monitor_coalesces_updates_by_scope_and_module() -> None:
+    event_hub = app_module.AppEventHub()
+    monitor = app_module.ApplicationMonitor(event_hub, debounce_seconds=0.01)
+    subscriber = event_hub.subscribe()
+
+    monitor.signal(
+        scope="module",
+        module_id="tri",
+        resources=["logs"],
+        reason="batch_log",
+    )
+    monitor.signal(
+        scope="module",
+        module_id="tri",
+        resources=["status"],
+        reason="batch_started",
+    )
+
+    event = wait_for_event(subscriber)
+
+    assert event.scope == "module"
+    assert event.module_id == "tri"
+    assert event.resources == ["logs", "status"]
+    assert event.reason == "batch_started"
+    event_hub.unsubscribe(subscriber)
 
 
 def test_missing_settings_redirects_to_setup(
@@ -147,6 +218,49 @@ def test_login_required_for_api_when_settings_exist(
 
     assert response.status_code == 401
     assert response.get_json()["authenticated"] is False
+
+
+def test_login_required_for_global_events_when_settings_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+
+    client = app.test_client()
+    response = client.get("/api/events")
+
+    assert response.status_code == 401
+    assert response.get_json()["authenticated"] is False
+
+
+def test_global_events_endpoint_streams_published_updates() -> None:
+    client = app.test_client()
+    event = app_module.EVENT_HUB.publish(
+        scope="module",
+        module_id="tri",
+        resources=["logs"],
+        reason="test_stream",
+    )
+    response = client.get(
+        "/api/events",
+        buffered=False,
+        headers={"Last-Event-ID": str(event.id - 1)},
+    )
+
+    try:
+        chunk = next(response.response).decode()
+    finally:
+        response.close()
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    assert f"id: {event.id}" in chunk
+    assert "event: app_update" in chunk
+    payload = parse_sse_data(chunk)
+    assert payload["scope"] == "module"
+    assert payload["module_id"] == "tri"
+    assert payload["resources"] == ["logs"]
 
 
 def test_login_rejects_invalid_password(
@@ -238,6 +352,19 @@ def test_index_renders_add_and_edit_actions() -> None:
     assert b"/modules/tri/edit" in response.data
 
 
+def test_pages_subscribe_to_global_events_instead_of_polling() -> None:
+    client = app.test_client()
+
+    index_response = client.get("/")
+    module_response = client.get("/tri")
+
+    assert b'new EventSource("/api/events")' in index_response.data
+    assert b'new EventSource("/api/events")' in module_response.data
+    assert b"setInterval(refreshModuleStatuses" not in index_response.data
+    assert b"setInterval(refreshModuleStatus" not in module_response.data
+    assert b"setInterval(refreshModuleLogs" not in module_response.data
+
+
 def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
     client = app.test_client()
     response = client.post(
@@ -310,6 +437,22 @@ def test_update_module_endpoint_blocks_running_module() -> None:
 
     assert response.status_code == 409
     assert response.get_json()["saved"] is False
+
+
+def test_create_active_run_signals_status_update() -> None:
+    subscriber = app_module.EVENT_HUB.subscribe()
+
+    try:
+        create_active_run("tri", "test-run")
+        event = wait_for_event_reason(subscriber, "batch_started")
+    finally:
+        remove_active_run("tri")
+        app_module.EVENT_HUB.unsubscribe(subscriber)
+
+    assert event.scope == "module"
+    assert event.module_id == "tri"
+    assert event.resources == ["status"]
+    assert event.reason == "batch_started"
 
 
 def test_delete_module_endpoint_removes_module_and_temporary_files(

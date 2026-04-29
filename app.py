@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import queue
 import re
 import secrets
 import threading
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -110,6 +113,208 @@ class ActiveRun:
     kill_requested: bool = False
     plugin_statuses: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AppEvent:
+    id: int
+    type: str
+    scope: str
+    resources: list[str]
+    reason: str
+    created_at: str
+    module_id: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "scope": self.scope,
+            "module_id": self.module_id,
+            "resources": self.resources,
+            "reason": self.reason,
+            "version": self.id,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(frozen=True)
+class AppUpdateSignal:
+    scope: str
+    resources: tuple[str, ...]
+    reason: str
+    module_id: str | None = None
+
+
+class AppEventHub:
+    def __init__(self, history_size: int = 200) -> None:
+        self._history: deque[AppEvent] = deque(maxlen=history_size)
+        self._subscribers: set[queue.Queue[AppEvent]] = set()
+        self._lock = threading.Lock()
+        self._next_id = 1
+
+    def publish(
+        self,
+        *,
+        scope: str,
+        resources: list[str],
+        reason: str,
+        module_id: str | None = None,
+    ) -> AppEvent:
+        with self._lock:
+            event = AppEvent(
+                id=self._next_id,
+                type="app_update",
+                scope=scope,
+                module_id=module_id,
+                resources=resources,
+                reason=reason,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            self._next_id += 1
+            self._history.append(event)
+            subscribers = list(self._subscribers)
+
+        for subscriber in subscribers:
+            self._put_subscriber_event(subscriber, event)
+        return event
+
+    def subscribe(self, last_event_id: str | None = None) -> queue.Queue[AppEvent]:
+        subscriber: queue.Queue[AppEvent] = queue.Queue(maxsize=512)
+        replay_after = self._parse_last_event_id(last_event_id)
+        with self._lock:
+            replay_events = [
+                event for event in self._history if replay_after is not None and event.id > replay_after
+            ]
+            for event in replay_events:
+                self._put_subscriber_event(subscriber, event)
+            self._subscribers.add(subscriber)
+        return subscriber
+
+    def unsubscribe(self, subscriber: queue.Queue[AppEvent]) -> None:
+        with self._lock:
+            self._subscribers.discard(subscriber)
+
+    @staticmethod
+    def _parse_last_event_id(last_event_id: str | None) -> int | None:
+        if not last_event_id:
+            return None
+        try:
+            return int(last_event_id)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _put_subscriber_event(
+        subscriber: queue.Queue[AppEvent],
+        event: AppEvent,
+    ) -> None:
+        try:
+            subscriber.put_nowait(event)
+        except queue.Full:
+            try:
+                subscriber.get_nowait()
+            except queue.Empty:
+                pass
+            subscriber.put_nowait(event)
+
+
+class ApplicationMonitor:
+    def __init__(self, event_hub: AppEventHub, debounce_seconds: float = 0.05) -> None:
+        self._event_hub = event_hub
+        self._debounce_seconds = debounce_seconds
+        self._signals: queue.Queue[AppUpdateSignal] = queue.Queue()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(
+                target=self._run,
+                name="application-monitor",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def signal(
+        self,
+        *,
+        scope: str,
+        resources: list[str],
+        reason: str,
+        module_id: str | None = None,
+    ) -> None:
+        self.start()
+        normalized_resources = tuple(sorted(set(resources)))
+        if not normalized_resources:
+            return
+        self._signals.put(
+            AppUpdateSignal(
+                scope=scope,
+                module_id=module_id,
+                resources=normalized_resources,
+                reason=reason,
+            )
+        )
+
+    def _run(self) -> None:
+        while True:
+            first_signal = self._signals.get()
+            pending: dict[tuple[str, str | None], dict[str, Any]] = {}
+            self._merge_signal(pending, first_signal)
+            deadline = time.monotonic() + self._debounce_seconds
+
+            while True:
+                timeout = max(0.0, deadline - time.monotonic())
+                if timeout == 0:
+                    break
+                try:
+                    signal = self._signals.get(timeout=timeout)
+                except queue.Empty:
+                    break
+                self._merge_signal(pending, signal)
+
+            for (scope, module_id), update in pending.items():
+                self._event_hub.publish(
+                    scope=scope,
+                    module_id=module_id,
+                    resources=sorted(update["resources"]),
+                    reason=update["reason"],
+                )
+
+    @staticmethod
+    def _merge_signal(
+        pending: dict[tuple[str, str | None], dict[str, Any]],
+        signal: AppUpdateSignal,
+    ) -> None:
+        key = (signal.scope, signal.module_id)
+        update = pending.setdefault(
+            key,
+            {"resources": set(), "reason": signal.reason},
+        )
+        update["resources"].update(signal.resources)
+        update["reason"] = signal.reason
+
+
+EVENT_HUB = AppEventHub()
+APP_MONITOR = ApplicationMonitor(EVENT_HUB)
+APP_MONITOR.start()
+
+
+def signal_app_update(
+    *,
+    scope: str,
+    resources: list[str],
+    reason: str,
+    module_id: str | None = None,
+) -> None:
+    APP_MONITOR.signal(
+        scope=scope,
+        module_id=module_id,
+        resources=resources,
+        reason=reason,
+    )
 
 
 def is_authenticated() -> bool:
@@ -286,6 +491,33 @@ def module_status(module_name: str) -> Response:
     return jsonify({"id": module_name, "running": is_module_running(module_name)})
 
 
+@app.get("/api/events")
+def api_events() -> Response:
+    last_event_id = request.headers.get("Last-Event-ID")
+    subscriber = EVENT_HUB.subscribe(last_event_id)
+
+    def stream_events() -> Iterator[str]:
+        try:
+            while True:
+                try:
+                    event = subscriber.get(timeout=15)
+                except queue.Empty:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield sse("app_update", event.to_payload(), event_id=event.id)
+        finally:
+            EVENT_HUB.unsubscribe(subscriber)
+
+    return Response(
+        stream_with_context(stream_events()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/modules/validate")
 def validate_module() -> Response:
     payload = request.get_json(silent=True) or {}
@@ -340,6 +572,12 @@ def create_module_config() -> Response:
         return jsonify({"saved": False, "message": str(exc)}), 400
 
     write_module_config(module_id, module)
+    signal_app_update(
+        scope="modules",
+        module_id=module_id,
+        resources=["config", "status"],
+        reason="module_created",
+    )
     return jsonify(
         {
             "saved": True,
@@ -374,6 +612,12 @@ def update_module_config(module_name: str) -> Response:
         return jsonify({"saved": False, "message": str(exc)}), 400
 
     write_module_config(module_name, module)
+    signal_app_update(
+        scope="modules",
+        module_id=module_name,
+        resources=["config", "status"],
+        reason="module_updated",
+    )
     return jsonify({"saved": True, "id": module_name, "message": "Módulo salvo."})
 
 
@@ -390,6 +634,12 @@ def delete_module_config(module_name: str) -> Response:
         ), 409
 
     delete_module_files(module_name)
+    signal_app_update(
+        scope="modules",
+        module_id=module_name,
+        resources=["config", "status"],
+        reason="module_deleted",
+    )
     return jsonify({"deleted": True, "id": module_name, "message": "Módulo excluído."})
 
 
@@ -441,6 +691,12 @@ def clear_module_logs(module_name: str) -> Response:
         ), 409
 
     clear_module_log(module_name)
+    signal_app_update(
+        scope="module",
+        module_id=module_name,
+        resources=["logs", "status"],
+        reason="module_logs_cleared",
+    )
     return jsonify({"id": module_name, "cleared": True, "running": False})
 
 
@@ -721,6 +977,12 @@ def create_active_run(
         ACTIVE_MODULES.add(module_name)
         ACTIVE_RUNS[module_name] = active_run
     write_active_run_file(active_run)
+    signal_app_update(
+        scope="module",
+        module_id=module_name,
+        resources=["status"],
+        reason="batch_started",
+    )
     return active_run
 
 
@@ -729,6 +991,12 @@ def remove_active_run(module_name: str) -> None:
         ACTIVE_MODULES.discard(module_name)
         ACTIVE_RUNS.pop(module_name, None)
     active_run_path(module_name).unlink(missing_ok=True)
+    signal_app_update(
+        scope="module",
+        module_id=module_name,
+        resources=["status"],
+        reason="batch_finished",
+    )
 
 
 def set_active_plugin(
@@ -769,6 +1037,12 @@ def mark_kill_requested(module_name: str) -> None:
         active_run.kill_requested = True
         snapshot = serialize_active_run(active_run)
     write_active_run_snapshot(module_name, snapshot)
+    signal_app_update(
+        scope="module",
+        module_id=module_name,
+        resources=["logs", "status"],
+        reason="kill_requested",
+    )
 
 
 def set_plugin_status(module_name: str, plugin_id: str, status: str) -> dict[str, str]:
@@ -805,6 +1079,12 @@ def append_active_log(module_name: str, event: str, payload: dict[str, Any]) -> 
         snapshot = serialize_active_run(active_run)
     append_module_log(module_name, record)
     write_active_run_snapshot(module_name, snapshot)
+    signal_app_update(
+        scope="module",
+        module_id=module_name,
+        resources=["logs"],
+        reason=f"batch_{event}",
+    )
     return record
 
 
@@ -1087,8 +1367,13 @@ def create_plugin(
     return plugin_class(prepared_plugin_config["id"], prepared_plugin_config)
 
 
-def sse(event: str, payload: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+def sse(event: str, payload: dict[str, Any], event_id: int | None = None) -> str:
+    lines = []
+    if event_id is not None:
+        lines.append(f"id: {event_id}")
+    lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(payload, ensure_ascii=False)}")
+    return "\n".join(lines) + "\n\n"
 
 
 if __name__ == "__main__":

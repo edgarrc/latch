@@ -34,6 +34,7 @@ Casos de uso típicos:
 - Logs persistidos da última execução em arquivos temporários do projeto.
 - Recuperação do console ao sair e voltar para a página durante uma execução.
 - Status por etapa na página do módulo, com recuperação ao recarregar a tela.
+- Atualização de status/logs por SSE global, sem polling periódico do navegador.
 - Botão `Clear` para limpar logs quando o módulo está parado.
 - Botão `Kill` para interromper o plugin ativo.
 - UI simples com Bootstrap via CDN.

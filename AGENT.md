@@ -188,6 +188,7 @@ Rotas principais:
 - `GET /api/modules/<module>/logs`: lê logs persistidos incrementalmente.
 - `POST /api/modules/<module>/logs/clear`: limpa logs quando parado.
 - `POST /api/modules/<module>/kill`: solicita kill do plugin atual.
+- `GET /api/events`: stream SSE global de sinais mínimos de atualização.
 
 Persistência temporária:
 
@@ -207,7 +208,8 @@ Padrões atuais:
 - HTML simples em Jinja templates.
 - Logs renderizados com `textContent`, nunca `innerHTML`.
 - SSE usado para execução iniciada pela própria página.
-- Polling de logs usado para recuperar execução em andamento e como fonte persistida.
+- SSE global usado para sinalizar alterações vindas do backend sem polling periódico.
+- Endpoints de status/logs continuam sendo a fonte dos dados; o SSE global apenas invalida a tela e o frontend faz `fetch` quando recebe o sinal.
 
 Estados da tela do módulo:
 

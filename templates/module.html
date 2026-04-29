@@ -317,6 +317,59 @@
         }
       }
 
+      let moduleStatusRefreshTimer = null;
+      let moduleLogsRefreshTimer = null;
+
+      function scheduleModuleStatusRefresh() {
+        if (moduleStatusRefreshTimer) {
+          return;
+        }
+
+        moduleStatusRefreshTimer = window.setTimeout(() => {
+          moduleStatusRefreshTimer = null;
+          refreshModuleStatus();
+        }, 75);
+      }
+
+      function scheduleModuleLogsRefresh() {
+        if (moduleLogsRefreshTimer) {
+          return;
+        }
+
+        moduleLogsRefreshTimer = window.setTimeout(() => {
+          moduleLogsRefreshTimer = null;
+          refreshModuleLogs();
+        }, 75);
+      }
+
+      function connectAppEvents() {
+        const globalEventSource = new EventSource("/api/events");
+
+        globalEventSource.addEventListener("app_update", (event) => {
+          const payload = JSON.parse(event.data);
+          const resources = Array.isArray(payload.resources) ? payload.resources : [];
+
+          if (payload.scope === "modules" && payload.module_id === "{{ module.id }}" && resources.includes("config")) {
+            if (payload.reason === "module_deleted") {
+              window.location.href = "/";
+            } else {
+              window.location.reload();
+            }
+            return;
+          }
+
+          if (payload.scope !== "module" || payload.module_id !== "{{ module.id }}") {
+            return;
+          }
+
+          if (resources.includes("logs")) {
+            scheduleModuleLogsRefresh();
+          } else if (resources.includes("status")) {
+            scheduleModuleStatusRefresh();
+          }
+        });
+      }
+
       runButton.addEventListener("click", async () => {
         if (eventSource) {
           eventSource.close();
@@ -483,8 +536,7 @@
       });
 
       refreshModuleLogs();
-      setInterval(refreshModuleStatus, 2500);
-      setInterval(refreshModuleLogs, 1000);
+      connectAppEvents();
     </script>
   </body>
 </html>

@@ -99,7 +99,38 @@
         }
       }
 
-      setInterval(refreshModuleStatuses, 2500);
+      let statusRefreshTimer = null;
+
+      function scheduleModuleStatusRefresh() {
+        if (statusRefreshTimer) {
+          return;
+        }
+
+        statusRefreshTimer = window.setTimeout(() => {
+          statusRefreshTimer = null;
+          refreshModuleStatuses();
+        }, 75);
+      }
+
+      function connectAppEvents() {
+        const eventSource = new EventSource("/api/events");
+
+        eventSource.addEventListener("app_update", (event) => {
+          const payload = JSON.parse(event.data);
+          const resources = Array.isArray(payload.resources) ? payload.resources : [];
+
+          if (payload.scope === "modules" && resources.includes("config")) {
+            window.location.reload();
+            return;
+          }
+
+          if (payload.scope === "modules" || resources.includes("status")) {
+            scheduleModuleStatusRefresh();
+          }
+        });
+      }
+
+      connectAppEvents();
     </script>
   </body>
 </html>
