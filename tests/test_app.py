@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash
 from app import (
     active_run_path,
     app,
+    clear_generated_temp_files,
     create_active_run,
     discover_module_names,
     get_active_kill_requested,
@@ -363,6 +364,27 @@ def test_load_module_config_reads_configured_plugins() -> None:
     assert module["description"]
     assert module["plugins"][0]["id"] == "preparar_teste"
     assert module["plugins"][0]["description"]
+
+
+def test_clear_generated_temp_files_removes_module_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    temp_dir.mkdir()
+    log_path = temp_dir / "temp_publico.jsonl"
+    active_path = temp_dir / "active_publico.json"
+    unrelated_path = temp_dir / "keep.txt"
+    log_path.write_text("log\n", encoding="utf-8")
+    active_path.write_text("{}", encoding="utf-8")
+    unrelated_path.write_text("keep\n", encoding="utf-8")
+    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
+
+    clear_generated_temp_files()
+
+    assert not log_path.exists()
+    assert not active_path.exists()
+    assert unrelated_path.exists()
 
 
 def test_discover_module_names_reads_yaml_files(

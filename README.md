@@ -32,6 +32,7 @@ Casos de uso típicos:
 - Validação por exit code, string de erro e string de sucesso.
 - Lock por módulo usando `filelock`.
 - Logs persistidos da última execução em arquivos temporários do projeto.
+- Limpeza dos logs/metadados temporários de módulos ao iniciar a aplicação.
 - Recuperação do console ao sair e voltar para a página durante uma execução.
 - Status por etapa na página do módulo, com recuperação ao recarregar a tela.
 - Atualização de status/logs por SSE global, sem polling periódico do navegador.

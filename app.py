@@ -56,11 +56,22 @@ PLUGIN_TYPES = {
 ACTIVE_MODULES: set[str] = set()
 ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
 ACTIVE_MODULES_LOCK = threading.Lock()
+GENERATED_TEMP_PATTERNS = ("temp_*.jsonl", "active_*.json")
 
 USER_MODULES_DIR.mkdir(parents=True, exist_ok=True)
 SYSTEM_MODULES_DIR.mkdir(parents=True, exist_ok=True)
 LOCKS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
+
+
+def clear_generated_temp_files() -> None:
+    for pattern in GENERATED_TEMP_PATTERNS:
+        for path in TEMP_DIR.glob(pattern):
+            if path.is_file() or path.is_symlink():
+                path.unlink(missing_ok=True)
+
+
+clear_generated_temp_files()
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(hours=24)
 

@@ -198,6 +198,7 @@ Persistência temporária:
 - Execução ativa fica em `temp/active_<module>.json`.
 - A execução ativa inclui `plugin_statuses`, além de plugin atual, kill flag e metadados como PID/PGID.
 - Arquivos em `temp/*.jsonl` e `temp/active_*.json` não devem ser versionados.
+- Ao iniciar a aplicação, os artefatos gerados por módulos em `temp/temp_*.jsonl` e `temp/active_*.json` são removidos.
 
 O `run_id` identifica uma execução. A `sequence` reinicia a cada nova execução. O frontend usa ambos para deduplicar eventos, detectar quando deve resetar o console e reconstruir status por etapa a partir dos eventos persistidos.
 
