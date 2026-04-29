@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+.venv
 .codex
 .pip-cache/
 settings.yaml
