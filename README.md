@@ -39,7 +39,7 @@ Casos de uso típicos:
 - Status por etapa na página do módulo, com recuperação ao recarregar a tela.
 - Atualização de status/logs por SSE global, sem polling periódico do navegador.
 - Setup inicial com dois usuários fixos: `admin` e `user`.
-- Apenas `admin` pode criar, editar, validar e excluir módulos.
+- Apenas `admin` pode criar, editar, validar e excluir módulos; `user` pode visualizar o YAML/script do módulo em modo somente leitura.
 - Botão `Clear` para limpar logs quando o módulo está parado.
 - Botão `Kill` para interromper o plugin ativo.
 - UI simples com Bootstrap via CDN.
@@ -91,7 +91,7 @@ Casos de uso típicos:
 
 Quando `settings.yaml` não existe, a aplicação abre o setup inicial e solicita uma senha para `admin` e outra para `user`.
 
-O usuário `admin` pode operar batches e também criar, editar, validar e excluir módulos. O usuário `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs quando permitido e solicitar `Kill`, mas não acessa ações de edição de módulo.
+O usuário `admin` pode operar batches e também criar, editar, validar e excluir módulos. O usuário `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs quando permitido, solicitar `Kill` e visualizar o YAML/script do módulo em modo somente leitura, com valores `sensitive` mascarados.
 
 O arquivo `settings.yaml` guarda apenas hashes das senhas e a chave de sessão da aplicação.
 
@@ -336,7 +336,7 @@ O contrato completo e as regras de arquitetura estão documentados em `AGENT.md`
 
 ## Edição de Módulos
 
-A página principal possui o botão `Adicionar` e cada linha possui `Editar` apenas para o usuário `admin`.
+A página principal possui o botão `Adicionar` e cada linha possui `Editar` apenas para o usuário `admin`. Para `user`, a linha mostra `Ver script`, abrindo o YAML do módulo em modo somente leitura.
 
 A tela de edição trabalha com YAML bruto e oferece:
 
@@ -344,7 +344,7 @@ A tela de edição trabalha com YAML bruto e oferece:
 - `Salvar`: valida novamente e grava o YAML bruto em `modules/user/<nome>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados no editor.
 - `Excluir`: remove o YAML do módulo e arquivos temporários relacionados.
 
-Criação, validação, salvamento e exclusão são ações exclusivas do `admin`. O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch.
+Criação, validação, salvamento e exclusão são ações exclusivas do `admin`. O usuário `user` pode visualizar o YAML, mas não valida nem altera a configuração. O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch.
 
 ## Status das Etapas
 

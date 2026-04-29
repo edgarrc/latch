@@ -51,6 +51,8 @@
                     <a class="btn btn-outline-primary" href="/{{ module.id }}">Abrir</a>
                     {% if current_is_admin %}
                       <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
+                    {% else %}
+                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Ver script</a>
                     {% endif %}
                   </div>
                 </td>

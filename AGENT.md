@@ -92,10 +92,10 @@ Variáveis de módulo:
 - A página principal lista módulos em formato tabular, com status em coluna própria.
 - O setup inicial cria senhas para os usuários fixos `admin` e `user`.
 - `admin` pode criar, editar, validar e excluir módulos.
-- `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs e solicitar `Kill`, mas não pode editar módulos.
-- A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`.
+- `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs, solicitar `Kill` e visualizar o YAML/script do módulo em modo somente leitura, com valores `sensitive` mascarados.
+- A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`; para `user`, a ação de script abre a tela do módulo em modo somente leitura.
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
-- A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão.
+- A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão para `admin`; para `user`, a mesma tela funciona apenas como visualização readonly do YAML.
 - `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos e sem normalizar/reformatar o YAML enviado.
 - `Save` valida novamente e persiste o YAML bruto enviado em `modules/user/<module>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados pelo usuário. É bloqueado enquanto o módulo está em execução.
 - A exclusão remove `modules/user/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
@@ -281,7 +281,7 @@ Rotas principais:
 
 - `GET /`: página principal com tabela de módulos.
 - `GET /modules/new`: tela para criar módulo, restrita ao `admin`.
-- `GET /modules/<module>/edit`: tela para editar módulo, restrita ao `admin`.
+- `GET /modules/<module>/edit`: tela para editar módulo para `admin`; para `user`, visualização readonly do YAML com valores `sensitive` mascarados.
 - `GET /<module>`: página do módulo.
 - `GET /api/modules/status`: status de todos os módulos.
 - `GET /api/modules/<module>/status`: status de um módulo.

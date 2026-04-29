@@ -519,7 +519,7 @@ def test_index_renders_add_and_edit_actions(
     assert b"/modules/publico/edit" in response.data
 
 
-def test_user_index_hides_module_edit_actions(
+def test_user_index_shows_script_view_without_edit_actions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -538,10 +538,12 @@ def test_user_index_hides_module_edit_actions(
     assert response.status_code == 200
     assert b"user" in response.data
     assert b"Adicionar" not in response.data
-    assert b"/modules/publico/edit" not in response.data
+    assert b"Editar" not in response.data
+    assert b"Ver script" in response.data
+    assert b"/modules/publico/edit" in response.data
 
 
-def test_user_cannot_access_module_edit_pages_or_apis(
+def test_user_can_view_module_yaml_readonly_but_cannot_access_edit_apis(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -555,9 +557,9 @@ def test_user_cannot_access_module_edit_pages_or_apis(
 
     client = app.test_client()
     authenticate_client(client, "user")
+    edit_response = client.get("/modules/publico/edit")
     responses = [
         client.get("/modules/new"),
-        client.get("/modules/publico/edit"),
         client.post(
             "/api/modules/validate",
             json={"module_id": "publico", "content": "name: Publico\nplugins: []\n"},
@@ -573,11 +575,60 @@ def test_user_cannot_access_module_edit_pages_or_apis(
         client.delete("/api/modules/publico"),
     ]
 
+    assert edit_response.status_code == 200
+    assert b"Visualizar Publico" in edit_response.data
+    assert b"readonly" in edit_response.data
+    assert b"Validate" not in edit_response.data
+    assert b"Salvar" not in edit_response.data
+    assert b"Excluir" not in edit_response.data
+
     for response in responses:
         assert response.status_code == 403
 
-    assert responses[2].get_json()["message"] == "Apenas admin pode editar módulos."
+    assert responses[1].get_json()["message"] == "Apenas admin pode editar módulos."
     assert (user_modules_dir / "publico.yaml").exists()
+
+
+def test_user_module_yaml_view_masks_sensitive_variable_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    user_modules_dir.joinpath("seguro.yaml").write_text(
+        (
+            "name: Seguro\n"
+            "variables:\n"
+            "  senha:\n"
+            "    type: sensitive\n"
+            "    value: segredo-real\n"
+            "  usuario:\n"
+            "    type: string\n"
+            "    value: analytics\n"
+            "plugins:\n"
+            "  - id: etapa\n"
+            "    type: command_line\n"
+            "    command: echo ok\n"
+        ),
+        encoding="utf-8",
+    )
+
+    client = app.test_client()
+    authenticate_client(client, "admin")
+    admin_response = client.get("/modules/seguro/edit")
+    authenticate_client(client, "user")
+    user_response = client.get("/modules/seguro/edit")
+
+    assert admin_response.status_code == 200
+    assert b"segredo-real" in admin_response.data
+    assert user_response.status_code == 200
+    assert b"segredo-real" not in user_response.data
+    assert b"****" in user_response.data
+    assert b"value: analytics" in user_response.data
 
 
 def test_user_can_access_operational_module_surfaces(

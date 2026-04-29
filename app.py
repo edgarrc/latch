@@ -29,6 +29,7 @@ from flask import (
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from yaml.nodes import MappingNode, Node, ScalarNode
 
 from plugins.base import (
     BasePlugin,
@@ -402,6 +403,10 @@ def is_admin() -> bool:
     return current_username() == ADMIN_USERNAME
 
 
+def can_edit_modules() -> bool:
+    return bool(app.config.get("AUTH_DISABLED")) or is_admin()
+
+
 def authenticate_session(username: str) -> None:
     session.clear()
     session.permanent = True
@@ -409,10 +414,7 @@ def authenticate_session(username: str) -> None:
 
 
 def require_admin_access() -> Response | tuple[Response, int] | None:
-    if app.config.get("AUTH_DISABLED"):
-        return None
-
-    if is_admin():
+    if can_edit_modules():
         return None
 
     message = "Apenas admin pode editar módulos."
@@ -551,25 +553,25 @@ def new_module_page() -> str | Response | tuple[Response, int]:
         module_id="",
         module_name="",
         module_running=False,
+        readonly=False,
         yaml_content=default_module_yaml(),
     )
 
 
 @app.get("/modules/<module_name>/edit")
 def edit_module_page(module_name: str) -> str | Response | tuple[Response, int]:
-    admin_response = require_admin_access()
-    if admin_response is not None:
-        return admin_response
-
     ensure_public_module_exists(module_name)
     module = module_with_status(module_name)
+    yaml_content = read_module_yaml(module_name)
+    readonly = not can_edit_modules()
     return render_template(
         "module_edit.html",
         mode="edit",
         module_id=module_name,
         module_name=module["name"],
         module_running=module["running"],
-        yaml_content=read_module_yaml(module_name),
+        readonly=readonly,
+        yaml_content=mask_sensitive_module_yaml(yaml_content) if readonly else yaml_content,
     )
 
 
@@ -1011,6 +1013,48 @@ def parse_module_yaml(content: str) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError("O YAML do módulo deve ser um objeto.")
     return config
+
+
+def yaml_mapping_value(mapping: MappingNode, key: str) -> Node | None:
+    for key_node, value_node in mapping.value:
+        if isinstance(key_node, ScalarNode) and key_node.value == key:
+            return value_node
+    return None
+
+
+def mask_sensitive_module_yaml(content: str) -> str:
+    try:
+        root = yaml.compose(content)
+    except yaml.YAMLError:
+        return content
+
+    if not isinstance(root, MappingNode):
+        return content
+
+    variables_node = yaml_mapping_value(root, "variables")
+    if not isinstance(variables_node, MappingNode):
+        return content
+
+    replacements: list[tuple[int, int, str]] = []
+    for _variable_name_node, variable_node in variables_node.value:
+        if not isinstance(variable_node, MappingNode):
+            continue
+
+        type_node = yaml_mapping_value(variable_node, "type")
+        value_node = yaml_mapping_value(variable_node, "value")
+        if (
+            isinstance(type_node, ScalarNode)
+            and type_node.value == "sensitive"
+            and isinstance(value_node, ScalarNode)
+        ):
+            replacements.append(
+                (value_node.start_mark.index, value_node.end_mark.index, '"****"')
+            )
+
+    masked_content = content
+    for start, end, replacement in sorted(replacements, reverse=True):
+        masked_content = masked_content[:start] + replacement + masked_content[end:]
+    return masked_content
 
 
 def validate_optional_text(config: dict[str, Any], key: str, context: str) -> str:
