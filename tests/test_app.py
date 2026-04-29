@@ -87,6 +87,11 @@ def wait_for_event_reason(
             return event
 
 
+def assert_latch_branding(response) -> None:
+    assert b"Latch" in response.data
+    assert app_module.APP_GITHUB_URL.encode() in response.data
+
+
 def enable_auth_with_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(app_module, "SETTINGS_PATH", tmp_path / "settings.yaml")
     app.config["AUTH_DISABLED"] = False
@@ -210,6 +215,7 @@ def test_missing_settings_redirects_to_setup(
     assert response.headers["Location"].endswith("/setup")
     assert setup_response.status_code == 200
     assert b"Setup inicial" in setup_response.data
+    assert_latch_branding(setup_response)
 
 
 def test_setup_creates_settings_hash_and_authenticates(
@@ -250,6 +256,20 @@ def test_login_required_for_html_when_settings_exist(
 
     assert response.status_code == 302
     assert "/login?next=/modules/new" in response.headers["Location"]
+
+
+def test_login_page_renders_latch_branding_and_footer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+
+    client = app.test_client()
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert_latch_branding(response)
 
 
 def test_login_required_for_api_when_settings_exist(
@@ -453,6 +473,26 @@ def test_index_renders_add_and_edit_actions(
     assert response.status_code == 200
     assert b"Adicionar" in response.data
     assert b"/modules/publico/edit" in response.data
+
+
+def test_authenticated_pages_render_latch_branding_and_footer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    responses = [
+        client.get("/"),
+        client.get("/publico"),
+        client.get("/modules/new"),
+        client.get("/modules/publico/edit"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 200
+        assert_latch_branding(response)
 
 
 def test_pages_subscribe_to_global_events_instead_of_polling(

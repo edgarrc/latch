@@ -47,6 +47,9 @@ SYSTEM_MODULES_DIR = MODULES_ROOT / "system"
 LOCKS_DIR = BASE_DIR / "locks"
 TEMP_DIR = BASE_DIR / "temp"
 SETTINGS_PATH = BASE_DIR / "settings.yaml"
+APP_NAME = "Latch"
+APP_TAGLINE = "Gerenciador batch"
+APP_GITHUB_URL = "https://github.com/edgarrc/latch"
 ADMIN_USERNAME = "admin"
 SESSION_USER_KEY = "user"
 MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -115,6 +118,15 @@ def load_persisted_secret_key() -> str | None:
 
 
 app.secret_key = load_persisted_secret_key() or secrets.token_urlsafe(32)
+
+
+@app.context_processor
+def inject_app_metadata() -> dict[str, str]:
+    return {
+        "app_name": APP_NAME,
+        "app_tagline": APP_TAGLINE,
+        "app_github_url": APP_GITHUB_URL,
+    }
 
 
 @dataclass

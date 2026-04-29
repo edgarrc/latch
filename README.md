@@ -1,12 +1,14 @@
-# Modular Batch Command Manager
+# Latch
 
-Aplicação Flask para executar, acompanhar e interromper batches modulares compostos por plugins configuráveis.
+Latch é uma aplicação Flask para executar, acompanhar e interromper batches modulares compostos por plugins configuráveis.
 
 O projeto fornece uma interface web simples para disparar comandos sequenciais por módulo, acompanhar logs em tempo real, evitar execuções concorrentes do mesmo módulo e interromper processos em execução quando necessário.
 
+Página oficial: https://github.com/edgarrc/latch
+
 ## Propósito
 
-Este sistema foi criado para centralizar a execução de rotinas batch locais de forma organizada e extensível.
+Latch foi criado para centralizar a execução de rotinas batch locais de forma organizada e extensível.
 
 Cada módulo define sua própria sequência de plugins em YAML. A aplicação carrega essa configuração, executa os plugins na ordem definida e interrompe o batch caso algum plugin falhe.
 
@@ -66,6 +68,10 @@ Casos de uso típicos:
 │   ├── command_line.py
 │   └── variables.py
 ├── templates/
+│   ├── _app_footer.html
+│   ├── _app_header.html
+│   ├── login.html
+│   ├── setup.html
 │   ├── index.html
 │   ├── module_edit.html
 │   └── module.html

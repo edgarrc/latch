@@ -2,7 +2,7 @@
 
 ## Propósito do Projeto
 
-Este projeto é uma aplicação Python/Flask que implementa um Gerenciador de Comandos Batch Modular. Ele permite executar, acompanhar, interromper e limpar execuções sequenciais de plugins configurados por módulo.
+Este projeto se chama Latch e implementa, em Python/Flask, um gerenciador de comandos batch modular para executar, acompanhar, interromper e limpar execuções sequenciais de plugins configurados por módulo.
 
 O objetivo é fornecer uma base reutilizável para orquestrar batches locais por módulos, com UI simples, logs em tempo real, persistência da última execução e controle seguro de concorrência por módulo.
 
@@ -26,6 +26,7 @@ Estrutura principal:
 - `plugins/`: implementação dos tipos de plugin.
 - `plugins/variables.py`: validação, resolução, substituição e mascaramento de variáveis de módulo usadas por comandos.
 - `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
+- `templates/_app_header.html` e `templates/_app_footer.html`: marca discreta e rodapé oficial compartilhados pelas páginas.
 - `locks/`: arquivos de lock por módulo usando `filelock`.
 - `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
 - `tests/`: testes de contrato e comportamento.
@@ -208,6 +209,10 @@ Padrões atuais:
 
 - Bootstrap via CDN.
 - HTML simples em Jinja templates.
+- O nome público do produto é `Latch`.
+- Páginas autenticadas devem mostrar `Latch` no topo de forma discreta.
+- Login e setup devem mostrar `Latch` com destaque visual moderado.
+- Todas as páginas HTML devem incluir o rodapé compartilhado com a página oficial: `https://github.com/edgarrc/latch`.
 - Logs renderizados com `textContent`, nunca `innerHTML`.
 - SSE usado para execução iniciada pela própria página.
 - SSE global usado para sinalizar alterações vindas do backend sem polling periódico.
