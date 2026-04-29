@@ -472,6 +472,7 @@ def test_load_module_config_returns_normalized_schedule_without_rewriting_yaml(
     )
     content = (
         "name: Agendado\n"
+        "schedule_enabled: true\n"
         "schedule: \"  0 * * * *  \"\n"
         "plugins:\n"
         "  - id: etapa\n"
@@ -484,7 +485,35 @@ def test_load_module_config_returns_normalized_schedule_without_rewriting_yaml(
     module = load_module_config("agendado")
 
     assert module["schedule"] == "0 * * * *"
+    assert module["schedule_enabled"] is True
     assert module_path.read_text(encoding="utf-8") == content
+
+
+def test_load_module_config_keeps_disabled_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    user_modules_dir.joinpath("agendado.yaml").write_text(
+        (
+            "name: Agendado\n"
+            "schedule_enabled: false\n"
+            "schedule: \"* * * * *\"\n"
+            "plugins:\n"
+            "  - id: etapa\n"
+            "    type: command_line\n"
+            "    command: echo ok\n"
+        ),
+        encoding="utf-8",
+    )
+
+    module = load_module_config("agendado")
+
+    assert module["schedule"] == "* * * * *"
+    assert module["schedule_enabled"] is False
 
 
 def test_clear_generated_temp_files_removes_module_artifacts(
@@ -571,7 +600,11 @@ def test_module_page_renders_schedule_notice(
     module_path.write_text(
         module_path.read_text(encoding="utf-8").replace(
             "description: Modulo publico temporario.\n",
-            "description: Modulo publico temporario.\nschedule: \"0 * * * *\"\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: true\n"
+                "schedule: \"0 * * * *\"\n"
+            ),
         ),
         encoding="utf-8",
     )
@@ -582,6 +615,7 @@ def test_module_page_renders_schedule_notice(
     assert response.status_code == 200
     assert b"Agendado" in response.data
     assert b"0 * * * *" in response.data
+    assert b"nextRunText" in response.data
     assert "Próxima execução".encode() in response.data
 
 
@@ -751,7 +785,11 @@ def test_status_endpoints_include_schedule_payload(
     module_path.write_text(
         module_path.read_text(encoding="utf-8").replace(
             "description: Modulo publico temporario.\n",
-            "description: Modulo publico temporario.\nschedule: \"0 * * * *\"\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: true\n"
+                "schedule: \"0 * * * *\"\n"
+            ),
         ),
         encoding="utf-8",
     )
@@ -763,8 +801,42 @@ def test_status_endpoints_include_schedule_payload(
     assert status_response.status_code == 200
     assert status_response.get_json()["scheduled"] is True
     assert status_response.get_json()["schedule"] == "0 * * * *"
+    assert status_response.get_json()["schedule_enabled"] is True
     assert status_response.get_json()["next_run"]
     assert all_status_response.get_json()["modules"]["publico"]["scheduled"] is True
+
+
+def test_status_endpoints_keep_disabled_schedule_without_next_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir)
+    module_path = user_modules_dir / "publico.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: false\n"
+                "schedule: \"0 * * * *\"\n"
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    client = app.test_client()
+    status_response = client.get("/api/modules/publico/status")
+
+    assert status_response.status_code == 200
+    payload = status_response.get_json()
+    assert payload["schedule_configured"] is True
+    assert payload["schedule_enabled"] is False
+    assert payload["scheduled"] is False
+    assert payload["next_run"] == ""
 
 
 def test_authenticated_pages_render_latch_branding_and_footer(
@@ -873,6 +945,7 @@ def test_validate_module_endpoint_accepts_schedule() -> None:
             "module_id": "novo",
             "content": (
                 "name: Novo\n"
+                "schedule_enabled: true\n"
                 "schedule: \"0 * * * *\"\n"
                 "plugins:\n"
                 "  - id: etapa\n"
@@ -884,6 +957,29 @@ def test_validate_module_endpoint_accepts_schedule() -> None:
 
     assert response.status_code == 200
     assert response.get_json()["valid"] is True
+
+
+def test_validate_module_endpoint_rejects_non_boolean_schedule_enabled() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "schedule_enabled: \"yes\"\n"
+                "schedule: \"0 * * * *\"\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["valid"] is False
+    assert "schedule_enabled" in response.get_json()["message"]
 
 
 def test_validate_module_endpoint_rejects_invalid_schedule() -> None:
@@ -1307,7 +1403,11 @@ def test_scheduler_triggers_due_scheduled_module(
     module_path.write_text(
         module_path.read_text(encoding="utf-8").replace(
             "description: Modulo publico temporario.\n",
-            "description: Modulo publico temporario.\nschedule: \"* * * * *\"\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: true\n"
+                "schedule: \"* * * * *\"\n"
+            ),
         ),
         encoding="utf-8",
     )
@@ -1348,6 +1448,44 @@ def test_scheduler_triggers_due_scheduled_module(
     ]
 
 
+def test_scheduler_skips_disabled_scheduled_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir, "agendado")
+    module_path = user_modules_dir / "agendado.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: false\n"
+                "schedule: \"* * * * *\"\n"
+            ),
+        ),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        app_module,
+        "start_detached_batch",
+        lambda *args, **kwargs: calls.append({"args": args, "kwargs": kwargs}),
+    )
+    scheduler = ModuleScheduler()
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    scheduler.refresh(now)
+    triggered = scheduler.run_due_once(now + timedelta(minutes=1))
+
+    assert triggered == []
+    assert calls == []
+    assert scheduler.next_run_for("agendado") == ""
+
+
 def test_scheduler_skips_due_module_when_it_is_already_running(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -1361,7 +1499,11 @@ def test_scheduler_skips_due_module_when_it_is_already_running(
     module_path.write_text(
         module_path.read_text(encoding="utf-8").replace(
             "description: Modulo publico temporario.\n",
-            "description: Modulo publico temporario.\nschedule: \"* * * * *\"\n",
+            (
+                "description: Modulo publico temporario.\n"
+                "schedule_enabled: true\n"
+                "schedule: \"* * * * *\"\n"
+            ),
         ),
         encoding="utf-8",
     )

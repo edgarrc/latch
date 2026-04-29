@@ -43,7 +43,8 @@ Configuração de módulo:
 - Cada módulo de usuário possui um YAML em `modules/user/<module>.yaml`.
 - O YAML define `name`, opcionalmente `description`, opcionalmente `schedule`, opcionalmente `variables`, e a lista ordenada `plugins`.
 - `schedule` é uma string opcional no formato cron clássico de 5 campos, por exemplo `"0 * * * *"` para executar de hora em hora.
-- `schedule` vazio, ausente ou `null` deixa o módulo sem agendamento.
+- `schedule_enabled` é booleano opcional. Quando ausente, um módulo com `schedule` continua habilitado por compatibilidade; quando `false`, o cron fica configurado, mas não dispara.
+- `schedule` vazio, ausente ou `null` deixa o módulo sem agendamento ativo.
 - Cada plugin pode declarar `description` textual para explicar a etapa.
 - A ordem da lista é a ordem exata de execução.
 
@@ -52,6 +53,7 @@ Exemplo:
 ```yaml
 name: Analítico
 description: Executa consulta analítica no ClickHouse.
+schedule_enabled: true
 schedule: "0 * * * *"
 variables:
   database:
@@ -93,6 +95,7 @@ Variáveis de módulo:
 - Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
 - Módulos diferentes podem executar em paralelo.
 - O scheduler interno dispara módulos com `schedule` usando o mesmo caminho de execução desacoplada usado pela interface.
+- `schedule_enabled: false` impede o disparo automático mesmo quando `schedule` está preenchido.
 - O cron de `schedule` usa o fuso local do servidor.
 - Se o app estiver desligado ou o módulo estiver ocupado no horário agendado, a execução perdida não é reposta; o próximo horário do cron é calculado normalmente.
 - Módulos agendados podem ser executados manualmente quando estão parados.

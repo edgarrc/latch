@@ -407,6 +407,14 @@ def validate_schedule_expression(value: Any, context: str) -> str:
     return schedule
 
 
+def validate_schedule_enabled(value: Any, schedule: str, context: str) -> bool:
+    if value is None:
+        return bool(schedule)
+    if not isinstance(value, bool):
+        raise ValueError(f"{context} 'schedule_enabled' deve ser booleano.")
+    return bool(schedule and value)
+
+
 def next_schedule_time(expression: str, base_time: datetime) -> datetime:
     if len(expression.split()) != 5:
         raise ValueError(f"schedule inválido: {expression!r}.")
@@ -1227,6 +1235,11 @@ def validate_module_config(
 
     description = validate_optional_text(config, "description", f"Module {module_name!r}")
     schedule = validate_schedule_expression(config.get("schedule"), f"Module {module_name!r}")
+    schedule_enabled = validate_schedule_enabled(
+        config.get("schedule_enabled"),
+        schedule,
+        f"Module {module_name!r}",
+    )
     plugins = config.get("plugins")
     if not isinstance(plugins, list) or not plugins:
         raise ValueError(f"Module {module_name!r} must define a non-empty plugins list.")
@@ -1261,6 +1274,7 @@ def validate_module_config(
         "name": name,
         "description": description,
         "schedule": schedule,
+        "schedule_enabled": schedule_enabled,
         "variables": variables,
         "plugins": validated_plugins,
     }
@@ -1273,6 +1287,7 @@ def dump_module_yaml(module: dict[str, Any]) -> str:
     if module.get("description"):
         config["description"] = module["description"]
     if module.get("schedule"):
+        config["schedule_enabled"] = bool(module.get("schedule_enabled"))
         config["schedule"] = module["schedule"]
     if module.get("variables"):
         config["variables"] = module["variables"]
@@ -1338,13 +1353,16 @@ def module_runtime_status(module: dict[str, Any]) -> dict[str, Any]:
     active_run = get_active_run(module_name)
     next_run = ""
     schedule = module.get("schedule") or ""
-    if schedule:
+    schedule_enabled = bool(module.get("schedule_enabled"))
+    if schedule and schedule_enabled:
         next_run = scheduled_next_run(module_name, schedule)
 
     return {
         "running": running,
-        "scheduled": bool(schedule),
+        "scheduled": bool(schedule and schedule_enabled),
         "schedule": schedule,
+        "schedule_enabled": schedule_enabled,
+        "schedule_configured": bool(schedule),
         "next_run": next_run,
         "next_run_display": format_datetime_for_display(next_run),
         "trigger": active_run.trigger if active_run is not None else "",
@@ -1356,15 +1374,26 @@ def module_runtime_status(module: dict[str, Any]) -> dict[str, Any]:
 
 
 def scheduled_next_run(module_name: str, schedule: str) -> str:
+    now = local_now()
     scheduler = globals().get("SCHEDULER")
     if scheduler is not None:
         next_run = scheduler.next_run_for(module_name)
-        if next_run:
+        if next_run and scheduled_time_is_future(next_run, now):
             return next_run
     try:
-        return next_schedule_time(schedule, local_now()).isoformat()
+        return next_schedule_time(schedule, now).isoformat()
     except ValueError:
         return ""
+
+
+def scheduled_time_is_future(value: str, now: datetime) -> bool:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None and now.tzinfo is not None:
+        parsed = parsed.replace(tzinfo=now.tzinfo)
+    return parsed > now
 
 
 def is_module_running(module_name: str) -> bool:
@@ -1935,7 +1964,8 @@ class ModuleScheduler:
                 continue
 
             schedule = module.get("schedule") or ""
-            if not schedule:
+            schedule_enabled = bool(module.get("schedule_enabled"))
+            if not schedule or not schedule_enabled:
                 with self._lock:
                     self._schedules.pop(module_name, None)
                     self._next_runs.pop(module_name, None)
@@ -1981,7 +2011,7 @@ class ModuleScheduler:
                 module = load_module_config(module_name)
             except Exception:
                 continue
-            if not module.get("schedule"):
+            if not module.get("schedule") or not module.get("schedule_enabled"):
                 continue
             if is_module_running(module_name):
                 continue

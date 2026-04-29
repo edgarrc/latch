@@ -106,6 +106,7 @@ Exemplo:
 ```yaml
 name: Analítico
 description: Executa as etapas analíticas do batch.
+schedule_enabled: true
 schedule: "0 * * * *"
 plugins:
   - id: preparar_analitico
@@ -125,7 +126,7 @@ plugins:
 
 Use `description` no módulo para explicar o objetivo geral e em cada plugin para explicar o que a etapa faz.
 
-Use `schedule` opcionalmente para executar o módulo de forma automática. O valor deve ser uma string cron clássica de 5 campos, como `"0 * * * *"` para executar de hora em hora. O cron é interpretado no fuso local do servidor. Se o Latch estiver desligado ou o módulo ainda estiver rodando no horário agendado, a execução perdida não é reposta; o scheduler aguarda o próximo horário.
+Use `schedule` opcionalmente para executar o módulo de forma automática. O valor deve ser uma string cron clássica de 5 campos, como `"0 * * * *"` para executar de hora em hora. Use `schedule_enabled: false` para manter o cron configurado sem executar automaticamente. O cron é interpretado no fuso local do servidor. Se o Latch estiver desligado ou o módulo ainda estiver rodando no horário agendado, a execução perdida não é reposta; o scheduler aguarda o próximo horário.
 
 Módulos agendados continuam permitindo execução manual quando estão parados. Durante uma execução agendada, a página do módulo usa os mesmos controles de uma execução manual: `Executar` e `Clear` ficam bloqueados, `Kill` continua disponível e o console pode ser reaberto acompanhando os logs persistidos.
 

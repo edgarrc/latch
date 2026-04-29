@@ -39,9 +39,11 @@
                   {% if module.description %}
                     <div class="small text-secondary mt-1">{{ module.description }}</div>
                   {% endif %}
-                  {% if module.scheduled %}
+                  {% if module.schedule %}
                     <div class="schedule-note mt-1">
-                      <span class="badge text-bg-primary">Agendado</span>
+                      <span class="badge {% if module.schedule_enabled %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                        {% if module.schedule_enabled %}Agendado{% else %}Agendamento desativado{% endif %}
+                      </span>
                       <span class="schedule-code">{{ module.schedule }}</span>
                     </div>
                   {% endif %}

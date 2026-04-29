@@ -22,13 +22,14 @@
           {% if module.description %}
             <p class="page-description">{{ module.description }}</p>
           {% endif %}
-          {% if module.scheduled %}
-            <div class="schedule-note mt-2">
-              <span class="badge text-bg-primary">Agendado</span>
+          {% if module.schedule %}
+            <div id="scheduleNote" class="schedule-note mt-2">
+              <span
+                id="scheduleStateBadge"
+                class="badge {% if module.schedule_enabled %}text-bg-primary{% else %}text-bg-secondary{% endif %}"
+              >{% if module.schedule_enabled %}Agendado{% else %}Agendamento desativado{% endif %}</span>
               <span class="schedule-code">{{ module.schedule }}</span>
-              {% if module.next_run_display %}
-                <span class="text-secondary">Próxima execução: {{ module.next_run_display }}</span>
-              {% endif %}
+              <span id="nextRunText" class="text-secondary">{% if module.scheduled and module.next_run_display %}Próxima execução: {{ module.next_run_display }}{% endif %}</span>
             </div>
           {% endif %}
         </div>
@@ -92,6 +93,8 @@
       const killButton = document.getElementById("killButton");
       const consoleEl = document.getElementById("console");
       const statusBadge = document.getElementById("statusBadge");
+      const scheduleStateBadge = document.getElementById("scheduleStateBadge");
+      const nextRunText = document.getElementById("nextRunText");
       const pluginIds = {{ module.plugins | map(attribute="id") | list | tojson }};
       const pluginStatusBadges = new Map(
         Array.from(document.querySelectorAll(".plugin-status")).map((badge) => [
@@ -208,6 +211,26 @@
         statusBadge.textContent = text;
       }
 
+      function updateScheduleInfo(payload) {
+        if (!payload || typeof payload !== "object") {
+          return;
+        }
+
+        if (scheduleStateBadge && Object.prototype.hasOwnProperty.call(payload, "schedule_enabled")) {
+          const enabled = Boolean(payload.schedule_enabled);
+          scheduleStateBadge.className = `badge ${enabled ? "text-bg-primary" : "text-bg-secondary"}`;
+          scheduleStateBadge.textContent = enabled ? "Agendado" : "Agendamento desativado";
+        }
+
+        if (nextRunText && Object.prototype.hasOwnProperty.call(payload, "next_run_display")) {
+          if (payload.scheduled && payload.next_run_display) {
+            nextRunText.textContent = `Próxima execução: ${payload.next_run_display}`;
+          } else {
+            nextRunText.textContent = "";
+          }
+        }
+      }
+
       function redirectToLogin() {
         window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       }
@@ -269,6 +292,7 @@
           }
 
           const payload = await response.json();
+          updateScheduleInfo(payload);
           setRunningState(payload.running, payload.trigger || "");
         } catch (_error) {
           return;
@@ -304,6 +328,7 @@
           if (payload.reset) {
             resetConsole(payload.run_id || "");
           }
+          updateScheduleInfo(payload);
 
           for (const event of payload.events) {
             if (event.trigger) {
@@ -448,6 +473,7 @@
             runButton.textContent = "Executar";
             setStatus("Falhou", "text-bg-danger");
           }
+          refreshModuleStatus();
         });
 
         eventSource.onerror = () => {
