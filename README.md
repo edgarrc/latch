@@ -29,7 +29,7 @@ Casos de uso típicos:
 - Variáveis por módulo com placeholders em comandos.
 - Suporte a variáveis de ambiente e valores sensíveis mascarados.
 - Execução sequencial de plugins.
-- Plugin `command_line` para executar comandos shell.
+- Plugins `command_line`, `clickhouse_client` e `redis_client` para executar comandos no host.
 - Captura de stdout/stderr em tempo real.
 - Validação por exit code, string de erro e string de sucesso.
 - Lock por módulo usando `filelock`.
@@ -67,7 +67,9 @@ Casos de uso típicos:
 │       └── *.yaml
 ├── plugins/
 │   ├── base.py
+│   ├── clickhouse_client.py
 │   ├── command_line.py
+│   ├── redis_client.py
 │   └── variables.py
 ├── templates/
 │   ├── _app_footer.html
@@ -203,13 +205,77 @@ Quando `value` estiver no formato `$NOME_ENV`, a aplicação resolve o valor a p
 
 Regras importantes:
 
-- Variáveis são declaradas no escopo do módulo e podem ser usadas por qualquer plugin `command_line` do módulo.
+- Variáveis são declaradas no escopo do módulo e podem ser usadas pelos plugins do módulo.
 - Nomes de variáveis devem começar com letra ou `_` e conter apenas letras, números e `_`.
 - Placeholders sem variável configurada fazem a execução falhar antes do comando iniciar.
 - Em comandos string, valores substituídos são escapados com `shlex.quote` antes de executar com `shell=True`.
 - Em comandos lista, cada item é executado como argumento direto, sem shell.
 - Valores `sensitive` são substituídos por `****` nos logs e metadados. O mascaramento é literal: se um processo externo transformar o segredo, por exemplo usando hash ou encoding, essa transformação não é inferida.
 - Para usar chaves literais em um comando quando `variables:` estiver configurado, escape como `{{` e `}}`.
+
+### Plugins
+
+#### `command_line`
+
+Executa um comando direto ou via shell, conforme o tipo de `command`.
+
+```yaml
+plugins:
+  - id: executar_script
+    type: command_line
+    command:
+      - /usr/bin/python3
+      - /opt/scripts/rotina.py
+    error_contains: ERROR
+    success_contains: concluido
+```
+
+#### `clickhouse_client`
+
+Executa `/usr/bin/clickhouse-client` com argumentos montados pela aplicação. O campo `query` é obrigatório. `user`, `password` e `database` são opcionais. A senha é sempre mascarada em logs e metadados, mesmo quando não vier de uma variável `sensitive`.
+
+```yaml
+plugins:
+  - id: consultar_clickhouse
+    type: clickhouse_client
+    user: "{clickhouse_user}"
+    password: "{clickhouse_password}"
+    database: "{clickhouse_database}"
+    query: SELECT COUNT(*) FROM relat_base_avaliacao_resposta
+    error_contains: ERROR
+    success_contains: null
+```
+
+O comando final é executado sem shell:
+
+```text
+/usr/bin/clickhouse-client --user ... --password ... --database ... --query ...
+```
+
+#### `redis_client`
+
+Executa `/usr/bin/redis-cli` com host e argumentos definidos pela configuração. O campo `host` é opcional. O campo `args` é obrigatório e pode ser lista de argumentos ou uma string interpretada com `shlex.split`.
+
+```yaml
+plugins:
+  - id: scan_redis
+    type: redis_client
+    host: redis.youeduc.com.br
+    args:
+      - --scan
+      - --pattern
+      - exp_superset_data_*
+    error_contains: ERROR
+    success_contains: null
+```
+
+O comando final é executado sem shell:
+
+```text
+/usr/bin/redis-cli -h <host> <args...>
+```
+
+Pipelines de shell, como `redis-cli --scan | xargs redis-cli del`, devem continuar em `command_line` ou ser implementados futuramente como um plugin de alto nível específico.
 
 ## Executando Localmente
 
@@ -284,7 +350,7 @@ Esses estados são reconstruídos pelos eventos persistidos da execução, entã
 
 ## Observações de Segurança
 
-O plugin `command_line` executa comandos no host. Portanto, os arquivos YAML devem ser tratados como configuração confiável.
+Os plugins de execução rodam comandos no host. Portanto, os arquivos YAML devem ser tratados como configuração confiável.
 
 Use `sensitive` para senhas, tokens e segredos. Não coloque segredos diretamente em `string` ou `integer`, pois esses valores podem aparecer nos logs.
 

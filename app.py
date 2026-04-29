@@ -37,7 +37,7 @@ from plugins.base import (
     PluginKillError,
     PluginKilledError,
 )
-from plugins.variables import prepare_command_plugin_config, validate_variable_definitions
+from plugins.variables import prepare_plugin_config, validate_variable_definitions
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -56,7 +56,9 @@ KNOWN_USERNAMES = (ADMIN_USERNAME, USER_USERNAME)
 SESSION_USER_KEY = "user"
 MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
+    "clickhouse_client": "plugins.clickhouse_client.ClickHouseClientPlugin",
     "command_line": "plugins.command_line.CommandLinePlugin",
+    "redis_client": "plugins.redis_client.RedisClientPlugin",
 }
 ACTIVE_MODULES: set[str] = set()
 ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
@@ -1551,12 +1553,10 @@ def create_plugin(
     if import_path is None:
         raise ValueError(f"Tipo de plugin desconhecido: {plugin_type!r}.")
 
-    prepared_plugin_config = plugin_config
-    if plugin_type == "command_line":
-        prepared_plugin_config = prepare_command_plugin_config(
-            plugin_config,
-            module_variables or {},
-        )
+    prepared_plugin_config = prepare_plugin_config(
+        plugin_config,
+        module_variables or {},
+    )
 
     module_path, class_name = import_path.rsplit(".", 1)
     plugin_module = importlib.import_module(module_path)

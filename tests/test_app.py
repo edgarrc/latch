@@ -664,6 +664,46 @@ def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
     assert response.get_json()["valid"] is False
 
 
+def test_validate_module_endpoint_accepts_client_plugins() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "variables:\n"
+                "  clickhouse_user:\n"
+                "    type: string\n"
+                "    value: analytics\n"
+                "  clickhouse_password:\n"
+                "    type: sensitive\n"
+                "    value: secret-value\n"
+                "plugins:\n"
+                "  - id: consultar\n"
+                "    type: clickhouse_client\n"
+                "    user: \"{clickhouse_user}\"\n"
+                "    password: \"{clickhouse_password}\"\n"
+                "    database: default\n"
+                "    query: SELECT 1\n"
+                "    error_contains: ERROR\n"
+                "    success_contains: null\n"
+                "  - id: scan\n"
+                "    type: redis_client\n"
+                "    host: redis.youeduc.com.br\n"
+                "    args:\n"
+                "      - --scan\n"
+                "      - --pattern\n"
+                "      - exp_*\n"
+                "    error_contains: ERROR\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["valid"] is True
+
+
 def test_validate_module_endpoint_returns_original_yaml() -> None:
     client = app.test_client()
     content = (

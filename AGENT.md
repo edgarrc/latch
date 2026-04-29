@@ -78,6 +78,7 @@ Variáveis de módulo:
 - Variável de ambiente ausente falha antes de iniciar o comando.
 - Nomes de variáveis e placeholders devem seguir `^[A-Za-z_][A-Za-z0-9_]*$`.
 - Placeholders desconhecidos falham antes de iniciar o comando.
+- Placeholders podem ser usados nos campos executáveis dos plugins `command_line`, `clickhouse_client` e `redis_client`.
 - Valores `sensitive` nunca devem aparecer em logs, console, SSE, JSON persistido ou metadados ativos; devem ser mascarados como `****`.
 - O mascaramento é literal sobre o valor sensível resolvido. Transformações feitas por processos externos, como hash ou encoding, não são inferidas.
 
@@ -175,6 +176,87 @@ Validações:
 - Se `error_contains` aparecer no output, é erro.
 - Se `success_contains` estiver configurado e não aparecer no output, é erro.
 - Output deve ser capturado em tempo real de stdout/stderr.
+
+## Plugin `clickhouse_client`
+
+O tipo `clickhouse_client` executa `/usr/bin/clickhouse-client` com `subprocess` sem shell, reutilizando o comportamento operacional de `command_line`.
+
+Campos:
+
+- `query`: texto obrigatório e não vazio.
+- `user`: texto opcional.
+- `password`: texto opcional.
+- `database`: texto opcional.
+- `error_contains`: texto opcional.
+- `success_contains`: texto opcional.
+
+Exemplo:
+
+```yaml
+plugins:
+  - id: consultar_clickhouse
+    type: clickhouse_client
+    user: "{clickhouse_user}"
+    password: "{clickhouse_password}"
+    database: "{clickhouse_database}"
+    query: SELECT COUNT(*) FROM relat_base_avaliacao_resposta
+    error_contains: ERROR
+    success_contains: null
+```
+
+Comando montado internamente:
+
+```text
+/usr/bin/clickhouse-client --user ... --password ... --database ... --query ...
+```
+
+Regras:
+
+- A execução é direta, com lista de argumentos e `shell=False`.
+- Placeholders são resolvidos em `query`, `user`, `password` e `database`.
+- `password` é sempre mascarado em logs e metadados, mesmo se não vier de variável `sensitive`.
+- O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
+
+## Plugin `redis_client`
+
+O tipo `redis_client` executa `/usr/bin/redis-cli` com `subprocess` sem shell, reutilizando o comportamento operacional de `command_line`.
+
+Campos:
+
+- `host`: texto opcional, montado como `-h <host>`.
+- `args`: obrigatório, como lista de argumentos ou string não vazia parseada com `shlex.split`.
+- `error_contains`: texto opcional.
+- `success_contains`: texto opcional.
+
+Exemplo:
+
+```yaml
+plugins:
+  - id: scan_redis
+    type: redis_client
+    host: redis.youeduc.com.br
+    args:
+      - --scan
+      - --pattern
+      - exp_superset_data_*
+    error_contains: ERROR
+    success_contains: null
+```
+
+Comando montado internamente:
+
+```text
+/usr/bin/redis-cli -h <host> <args...>
+```
+
+Regras:
+
+- A execução é direta, com lista de argumentos e `shell=False`.
+- `args` em lista deve conter apenas strings não vazias.
+- `args` em string é parseado com `shlex.split`.
+- Placeholders são resolvidos em `host` e `args`.
+- Pipelines shell, como `redis-cli --scan | xargs redis-cli del`, devem continuar em `command_line` ou virar um futuro plugin de alto nível específico.
+- O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
 
 ## Execução, Status e Logs
 
@@ -284,6 +366,9 @@ Manter cobertura para:
 - Kill bloqueado quando parado.
 - Kill chamando `plugin.kill()` quando ativo.
 - `command_line` gravando PID/PGID e encerrando como `killed`.
+- `clickhouse_client` montando argv fixo com `/usr/bin/clickhouse-client`, mascarando senha e herdando validações/kill de `command_line`.
+- `redis_client` aceitando `host` opcional e `args` lista/string, montando argv fixo com `/usr/bin/redis-cli` e herdando validações/kill de `command_line`.
+- Testes de `clickhouse_client` e `redis_client` não devem chamar os CLIs reais; simule a execução com binários/scripts temporários controlados pela suíte.
 - Descoberta dinâmica de módulos de usuário em `modules/user/*.yaml`.
 - Validação de YAML de módulo sem persistir e sem reformatar o conteúdo do editor.
 - Criação e edição de módulo persistindo o YAML bruto validado em `modules/user/<module>.yaml`.

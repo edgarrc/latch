@@ -87,6 +87,64 @@ def prepare_command_plugin_config(
     return prepared_config
 
 
+def prepare_plugin_config(
+    plugin_config: dict[str, Any],
+    variable_definitions: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    plugin_type = plugin_config.get("type")
+    if plugin_type == "command_line":
+        return prepare_command_plugin_config(plugin_config, variable_definitions)
+    if not variable_definitions:
+        return plugin_config
+
+    resolved_variables = resolve_variables(variable_definitions)
+    prepared_config = dict(plugin_config)
+    prepared_config["_sensitive_values"] = resolved_variables.sensitive_values
+
+    if plugin_type == "clickhouse_client":
+        for field_name in ("user", "password", "database", "query"):
+            if isinstance(prepared_config.get(field_name), str):
+                prepared_config[field_name] = render_template(
+                    prepared_config[field_name],
+                    resolved_variables,
+                    quote_for_shell=False,
+                    mask_sensitive=False,
+                )
+        return prepared_config
+
+    if plugin_type == "redis_client":
+        if isinstance(prepared_config.get("host"), str):
+            prepared_config["host"] = render_template(
+                prepared_config["host"],
+                resolved_variables,
+                quote_for_shell=False,
+                mask_sensitive=False,
+            )
+        args = prepared_config.get("args")
+        if isinstance(args, str):
+            prepared_config["args"] = render_template(
+                args,
+                resolved_variables,
+                quote_for_shell=True,
+                mask_sensitive=False,
+            )
+        elif isinstance(args, list):
+            prepared_config["args"] = [
+                render_template(
+                    arg,
+                    resolved_variables,
+                    quote_for_shell=False,
+                    mask_sensitive=False,
+                )
+                if isinstance(arg, str)
+                else arg
+                for arg in args
+            ]
+        return prepared_config
+
+    return plugin_config
+
+
 def resolve_variables(
     variable_definitions: dict[str, dict[str, Any]],
 ) -> ResolvedVariables:
