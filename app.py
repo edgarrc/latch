@@ -89,6 +89,16 @@ def load_settings() -> dict[str, Any] | None:
         settings = yaml.safe_load(settings_file) or {}
     if not isinstance(settings, dict):
         return None
+    users = settings.get("users")
+    if not isinstance(users, dict):
+        return None
+    for username in KNOWN_USERNAMES:
+        user_settings = users.get(username)
+        if not isinstance(user_settings, dict):
+            return None
+        password_hash = user_settings.get("password_hash")
+        if not isinstance(password_hash, str) or not password_hash:
+            return None
     return settings
 
 
