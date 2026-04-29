@@ -28,6 +28,7 @@ Estrutura principal:
 - `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
 - `templates/_app_header.html` e `templates/_app_footer.html`: marca discreta e rodapé oficial compartilhados pelas páginas.
 - `settings.yaml`: configuração local de autenticação com hashes dos usuários fixos `admin` e `user`.
+- `uwsgi.ini`: configuração de produção uWSGI HTTP direto para uso single-process com threads.
 - `locks/`: arquivos de lock por módulo usando `filelock`.
 - `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
 - `tests/`: testes de contrato e comportamento.
@@ -368,6 +369,9 @@ Estados da lista de etapas:
 - O arquivo `temp/active_<module>.json` é observabilidade/metadados, não a fonte principal para chamar `kill()`.
 - Em todos os caminhos de saída, o app deve liberar lock, remover execução ativa e limpar metadados ativos.
 - O scheduler embutido pressupõe um único processo responsável por agenda. Em deploy multi-worker, apenas um processo deve manter o scheduler habilitado.
+- O deploy de produção suportado usa `uwsgi.ini` com `processes = 1`, `threads >= 4`, `enable-threads = true` e `lazy-apps = true`.
+- Não aumente `processes` sem externalizar ou redesenhar o scheduler e o estado ativo usado por `Kill`; múltiplos workers podem criar múltiplos schedulers e deixar o plugin ativo inacessível ao endpoint de interrupção.
+- `lazy-apps = true` evita carregar a aplicação no master uWSGI antes do fork, preservando as threads internas iniciadas no import e durante a execução.
 
 ## Testes Esperados
 

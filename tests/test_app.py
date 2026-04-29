@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import app as app_module
+import configparser
 import json
 import queue
 import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -61,6 +63,19 @@ class FakeKillablePlugin(BasePlugin):
 
     def kill(self) -> None:
         self.killed = True
+
+
+def test_uwsgi_config_keeps_single_process_threaded_runtime() -> None:
+    config_path = Path(__file__).resolve().parents[1] / "uwsgi.ini"
+    config = configparser.ConfigParser()
+
+    assert config.read(config_path) == [str(config_path)]
+    uwsgi_config = config["uwsgi"]
+    assert uwsgi_config["module"] == "app:app"
+    assert uwsgi_config.getint("processes") == 1
+    assert uwsgi_config.getint("threads") >= 4
+    assert uwsgi_config.getboolean("enable-threads") is True
+    assert uwsgi_config.getboolean("lazy-apps") is True
 
 
 class FakeKilledPlugin(BasePlugin):

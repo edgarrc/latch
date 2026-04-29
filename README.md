@@ -54,6 +54,7 @@ Casos de uso típicos:
 - filelock
 - subprocess
 - Server-Sent Events (SSE)
+- uWSGI
 - Bootstrap
 - pytest
 
@@ -84,6 +85,7 @@ Casos de uso típicos:
 ├── locks/
 ├── temp/
 ├── tests/
+├── uwsgi.ini
 ├── requirements.txt
 ├── AGENT.md
 └── README.md
@@ -326,6 +328,30 @@ Acesse:
 ```text
 http://127.0.0.1:5000
 ```
+
+## Executando em Produção com uWSGI
+
+Instale as dependências no ambiente virtual:
+
+```bash
+pip install -r requirements.txt
+```
+
+Inicie a aplicação com uWSGI, com o ambiente virtual ativado:
+
+```bash
+uwsgi --ini uwsgi.ini
+```
+
+Sem ativar o ambiente virtual, use:
+
+```bash
+venv/bin/uwsgi --ini uwsgi.ini
+```
+
+O arquivo `uwsgi.ini` expõe o Latch em `0.0.0.0:5000` via HTTP direto e usa um único processo com threads habilitadas. Essa configuração é intencional: o scheduler embutido deve existir em apenas um processo, e o `Kill` depende do estado em memória do processo que iniciou o plugin ativo.
+
+Para este modelo de deploy, não aumente `processes`. Se precisar colocar Nginx ou outro proxy na frente, mantenha o uWSGI com `processes = 1`, `enable-threads = true` e ajuste apenas a forma de exposição HTTP/socket.
 
 ## Testes
 
