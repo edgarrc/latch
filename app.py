@@ -652,6 +652,7 @@ def validate_module() -> Response:
                 "name": module["name"],
                 "plugins": len(module["plugins"]),
             },
+            "yaml_content": dump_module_yaml(module),
         }
     )
 
@@ -699,6 +700,7 @@ def create_module_config() -> Response:
             "id": module_id,
             "message": "Módulo criado.",
             "redirect": f"/modules/{module_id}/edit",
+            "yaml_content": dump_module_yaml(module),
         }
     ), 201
 
@@ -737,7 +739,14 @@ def update_module_config(module_name: str) -> Response:
         resources=["config", "status"],
         reason="module_updated",
     )
-    return jsonify({"saved": True, "id": module_name, "message": "Módulo salvo."})
+    return jsonify(
+        {
+            "saved": True,
+            "id": module_name,
+            "message": "Módulo salvo.",
+            "yaml_content": dump_module_yaml(module),
+        }
+    )
 
 
 @app.delete("/api/modules/<module_name>")

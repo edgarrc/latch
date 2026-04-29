@@ -16,6 +16,7 @@ from app import (
     clear_generated_temp_files,
     create_active_run,
     discover_module_names,
+    dump_module_yaml,
     get_active_kill_requested,
     load_module_config,
     load_system_module_config,
@@ -662,6 +663,59 @@ def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
 
     assert response.status_code == 400
     assert response.get_json()["valid"] is False
+
+
+def test_validate_module_endpoint_returns_canonical_yaml() -> None:
+    client = app.test_client()
+    command = "printf 'um'\nprintf 'dois'\n"
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: |\n"
+                "      printf 'um'\n"
+                "      printf 'dois'\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    expected_module = {
+        "id": "novo",
+        "name": "Novo",
+        "description": "",
+        "variables": {},
+        "plugins": [
+            {
+                "id": "etapa",
+                "type": "command_line",
+                "command": command,
+            }
+        ],
+    }
+    assert payload["valid"] is True
+    assert payload["yaml_content"] == dump_module_yaml(expected_module)
+
+
+def test_module_edit_updates_editor_from_validated_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    response = client.get("/modules/publico/edit")
+
+    assert response.status_code == 200
+    assert b'typeof payload.yaml_content === "string"' in response.data
+    assert b"yamlContent.value = payload.yaml_content;" in response.data
 
 
 def test_create_module_endpoint_persists_yaml(

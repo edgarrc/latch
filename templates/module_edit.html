@@ -136,6 +136,9 @@
             return;
           }
 
+          if (typeof payload.yaml_content === "string") {
+            yamlContent.value = payload.yaml_content;
+          }
           showMessage("success", payload.message || "Configuração válida.");
         } catch (_error) {
           showMessage("danger", "Não foi possível validar a configuração.");
@@ -176,6 +179,9 @@
           }
 
           showMessage("success", payload.message || "Módulo salvo.");
+          if (typeof payload.yaml_content === "string") {
+            yamlContent.value = payload.yaml_content;
+          }
           if (payload.redirect) {
             window.location.href = payload.redirect;
           } else {
