@@ -289,7 +289,7 @@ Rotas principais:
 - `POST /api/modules`: cria módulo em `modules/user/<module>.yaml`, restrita ao `admin`.
 - `PUT /api/modules/<module>`: salva YAML de módulo existente, restrita ao `admin`.
 - `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados, restrita ao `admin`.
-- `GET /api/modules/<module>/run`: inicia execução via SSE.
+- `GET /api/modules/<module>/run`: inicia execução e acompanha via SSE; a execução roda desacoplada da conexão do cliente.
 - `GET /api/modules/<module>/logs`: lê logs persistidos incrementalmente.
 - `POST /api/modules/<module>/logs/clear`: limpa logs quando parado.
 - `POST /api/modules/<module>/kill`: solicita kill do plugin atual.
@@ -375,6 +375,7 @@ Manter cobertura para:
 - Lock por módulo.
 - Independência entre módulos.
 - Persistência e leitura incremental de logs.
+- Execução desacoplada da conexão SSE de acompanhamento, para que queda/reload do navegador não interrompa o batch.
 - Reset de console por novo `run_id`.
 - Status por etapa em `plugin_statuses`, incluindo sucesso, falha e etapas futuras enfileiradas.
 - Persistência de `plugin_statuses` em `temp/active_<module>.json` durante execução.

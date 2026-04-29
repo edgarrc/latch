@@ -4,6 +4,7 @@ import app as app_module
 import json
 import queue
 import sys
+import threading
 import time
 from typing import Iterator
 
@@ -23,6 +24,7 @@ from app import (
     remove_active_run,
     set_active_plugin,
     stream_batch,
+    stream_detached_batch,
 )
 from plugins.base import BasePlugin, PluginEvent, PluginKilledError
 
@@ -59,6 +61,27 @@ class FakeKilledPlugin(BasePlugin):
     def run(self) -> Iterator[PluginEvent]:
         raise PluginKilledError("fake killed")
         yield PluginEvent("info", "unreachable")
+
+    def kill(self) -> None:
+        return
+
+
+class BlockingPlugin(BasePlugin):
+    def __init__(
+        self,
+        plugin_id: str,
+        started: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(plugin_id, {"type": "fake"})
+        self.started = started
+        self.release = release
+
+    def run(self) -> Iterator[PluginEvent]:
+        self.started.set()
+        yield PluginEvent("info", "plugin bloqueado")
+        self.release.wait(timeout=2)
+        yield PluginEvent("info", "plugin liberado")
 
     def kill(self) -> None:
         return
@@ -1068,6 +1091,58 @@ def test_stream_batch_emits_plugin_statuses_on_success() -> None:
         "preparar_teste": "success",
         "processar_teste": "success",
     }
+
+
+def test_detached_batch_continues_after_sse_client_closes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir, "publico")
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_create_plugin(
+        plugin_config: dict[str, object],
+        module_variables: dict[str, dict[str, object]] | None = None,
+    ) -> BasePlugin:
+        return BlockingPlugin(str(plugin_config["id"]), started, release)
+
+    monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
+    module = {
+        "id": "publico",
+        "name": "Publico",
+        "variables": {},
+        "plugins": [{"id": "etapa_longa", "type": "fake"}],
+    }
+    events = stream_detached_batch(module)
+
+    try:
+        first_event = parse_sse_data(next(events))
+        assert first_event["event"] == "status"
+        assert started.wait(timeout=1)
+    finally:
+        events.close()
+
+    release.set()
+    deadline = time.monotonic() + 2
+    records = read_module_log("publico")
+    while time.monotonic() < deadline and (
+        not records or records[-1].get("event") != "done"
+    ):
+        time.sleep(0.01)
+        records = read_module_log("publico")
+
+    assert records[-1]["event"] == "done"
+    assert records[-1]["status"] == "success"
+    assert any(
+        record["event"] == "plugin_done" and record["plugin"] == "etapa_longa"
+        for record in records
+    )
+    assert not app_module.is_module_running("publico")
 
 
 def test_stream_batch_keeps_future_plugins_enqueued_after_failure() -> None:

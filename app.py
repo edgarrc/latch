@@ -900,7 +900,7 @@ def run_module(module_name: str) -> Response:
     ensure_public_module_exists(module_name)
     module = load_module_config(module_name)
     return Response(
-        stream_with_context(stream_batch(module)),
+        stream_with_context(stream_detached_batch(module)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1586,6 +1586,41 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
     finally:
         remove_active_run(module_id)
         lock.release()
+
+
+_BATCH_STREAM_DONE = object()
+
+
+def stream_detached_batch(module: dict[str, Any]) -> Iterator[str]:
+    event_queue: queue.Queue[str | object] = queue.Queue()
+    client_closed = threading.Event()
+
+    def enqueue(event: str | object) -> None:
+        if not client_closed.is_set():
+            event_queue.put(event)
+
+    def worker() -> None:
+        try:
+            for event in stream_batch(module):
+                enqueue(event)
+        finally:
+            enqueue(_BATCH_STREAM_DONE)
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"batch-runner-{module['id']}",
+        daemon=True,
+    )
+    thread.start()
+
+    try:
+        while True:
+            event = event_queue.get()
+            if event is _BATCH_STREAM_DONE:
+                return
+            yield str(event)
+    finally:
+        client_closed.set()
 
 
 def create_plugin(

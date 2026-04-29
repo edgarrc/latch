@@ -36,6 +36,7 @@ Casos de uso típicos:
 - Logs persistidos da última execução em arquivos temporários do projeto.
 - Limpeza dos logs/metadados temporários de módulos ao iniciar a aplicação.
 - Recuperação do console ao sair e voltar para a página durante uma execução.
+- Execução desacoplada da conexão SSE da página, evitando interrupção do batch por queda/reload do navegador.
 - Status por etapa na página do módulo, com recuperação ao recarregar a tela.
 - Atualização de status/logs por SSE global, sem polling periódico do navegador.
 - Setup inicial com dois usuários fixos: `admin` e `user`.
@@ -149,7 +150,7 @@ plugins:
 
 Exemplo 2:
 
-```
+```yaml
 name: Módulo de exemplo
 description: Demonstra variáveis string, integer e sensitive em comandos.
 variables:
@@ -366,7 +367,3 @@ Os plugins de execução rodam comandos no host. Portanto, os arquivos YAML deve
 Use `sensitive` para senhas, tokens e segredos. Não coloque segredos diretamente em `string` ou `integer`, pois esses valores podem aparecer nos logs.
 
 Não exponha esta aplicação publicamente sem autenticação, autorização e revisão de segurança adequadas.
-
-## Licença
-
-Este projeto ainda não define uma licença. Antes de publicar no GitHub como open source, adicione um arquivo `LICENSE`.

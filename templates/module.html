@@ -428,14 +428,10 @@
         eventSource.onerror = () => {
           waitingForNewRun = false;
           killRequested = false;
-          appendLog({ level: "error", message: "Conexão de log interrompida." });
+          appendLog({ level: "error", message: "Conexão de acompanhamento interrompida. Consultando estado atual." });
           eventSource.close();
           eventSource = null;
-          runButton.disabled = false;
-          clearButton.disabled = false;
-          killButton.disabled = true;
-          runButton.textContent = "Executar";
-          setStatus("Erro", "text-bg-danger");
+          refreshModuleStatus();
           refreshModuleLogs();
         };
       });
