@@ -95,8 +95,8 @@ Variáveis de módulo:
 - A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`.
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
 - A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão.
-- `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos.
-- `Save` persiste em `modules/user/<module>.yaml` e é bloqueado enquanto o módulo está em execução.
+- `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos e sem normalizar/reformatar o YAML enviado.
+- `Save` valida novamente e persiste o YAML bruto enviado em `modules/user/<module>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados pelo usuário. É bloqueado enquanto o módulo está em execução.
 - A exclusão remove `modules/user/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
 - Status por etapa:
   - `Não iniciado`: estado inicial da tela, antes de uma execução ou depois de limpar logs.
@@ -285,8 +285,8 @@ Manter cobertura para:
 - Kill chamando `plugin.kill()` quando ativo.
 - `command_line` gravando PID/PGID e encerrando como `killed`.
 - Descoberta dinâmica de módulos de usuário em `modules/user/*.yaml`.
-- Validação de YAML de módulo sem persistir.
-- Criação e edição de módulo persistindo em `modules/user/<module>.yaml`.
+- Validação de YAML de módulo sem persistir e sem reformatar o conteúdo do editor.
+- Criação e edição de módulo persistindo o YAML bruto validado em `modules/user/<module>.yaml`.
 - Bloqueio de salvamento quando o módulo está em execução.
 - Exclusão de módulo removendo YAML, log temporário, execução ativa temporária e lock.
 - Bloqueio de exclusão quando o módulo está em execução.

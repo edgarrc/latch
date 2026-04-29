@@ -16,7 +16,6 @@ from app import (
     clear_generated_temp_files,
     create_active_run,
     discover_module_names,
-    dump_module_yaml,
     get_active_kill_requested,
     load_module_config,
     load_system_module_config,
@@ -665,45 +664,33 @@ def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
     assert response.get_json()["valid"] is False
 
 
-def test_validate_module_endpoint_returns_canonical_yaml() -> None:
+def test_validate_module_endpoint_returns_original_yaml() -> None:
     client = app.test_client()
-    command = "printf 'um'\nprintf 'dois'\n"
+    content = (
+        "name: Novo\n"
+        "\n"
+        "plugins:\n"
+        "  - id: etapa\n"
+        "    type: command_line\n"
+        "    command: |\n"
+        "      printf 'um'\n"
+        "      printf 'dois'\n"
+    )
     response = client.post(
         "/api/modules/validate",
         json={
             "module_id": "novo",
-            "content": (
-                "name: Novo\n"
-                "plugins:\n"
-                "  - id: etapa\n"
-                "    type: command_line\n"
-                "    command: |\n"
-                "      printf 'um'\n"
-                "      printf 'dois'\n"
-            ),
+            "content": content,
         },
     )
 
     assert response.status_code == 200
     payload = response.get_json()
-    expected_module = {
-        "id": "novo",
-        "name": "Novo",
-        "description": "",
-        "variables": {},
-        "plugins": [
-            {
-                "id": "etapa",
-                "type": "command_line",
-                "command": command,
-            }
-        ],
-    }
     assert payload["valid"] is True
-    assert payload["yaml_content"] == dump_module_yaml(expected_module)
+    assert payload["yaml_content"] == content
 
 
-def test_module_edit_updates_editor_from_validated_yaml(
+def test_module_edit_keeps_editor_content_after_validation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -714,8 +701,12 @@ def test_module_edit_updates_editor_from_validated_yaml(
     response = client.get("/modules/publico/edit")
 
     assert response.status_code == 200
-    assert b'typeof payload.yaml_content === "string"' in response.data
-    assert b"yamlContent.value = payload.yaml_content;" in response.data
+    page = response.data.decode()
+    validate_handler = page.split('validateButton.addEventListener("click", async () => {', 1)[
+        1
+    ].split('saveButton.addEventListener("click"', 1)[0]
+    assert "yamlContent.value = payload.yaml_content;" not in validate_handler
+    assert "Configuração válida." in validate_handler
 
 
 def test_create_module_endpoint_persists_yaml(
@@ -728,28 +719,31 @@ def test_create_module_endpoint_persists_yaml(
     )
 
     client = app.test_client()
+    content = (
+        "name: Novo\n"
+        "description: Modulo novo\n"
+        "\n"
+        "plugins:\n"
+        "  - id: etapa\n"
+        "    type: command_line\n"
+        "    description: Etapa inicial\n"
+        "    command: |\n"
+        "      printf 'um'\n"
+        "      printf 'dois'\n"
+    )
     response = client.post(
         "/api/modules",
         json={
             "module_id": "novo",
-            "content": (
-                "name: Novo\n"
-                "description: Modulo novo\n"
-                "plugins:\n"
-                "  - id: etapa\n"
-                "    type: command_line\n"
-                "    description: Etapa inicial\n"
-                "    command: echo ok\n"
-            ),
+            "content": content,
         },
     )
 
     assert response.status_code == 201
     assert response.get_json()["saved"] is True
     assert (user_modules_dir / "novo.yaml").exists()
-    assert "description: Modulo novo" in (user_modules_dir / "novo.yaml").read_text(
-        encoding="utf-8"
-    )
+    assert (user_modules_dir / "novo.yaml").read_text(encoding="utf-8") == content
+    assert response.get_json()["yaml_content"] == content
 
 
 def test_create_module_endpoint_rejects_system_module_id() -> None:
@@ -799,6 +793,43 @@ def test_update_module_endpoint_blocks_running_module(
 
     assert response.status_code == 409
     assert response.get_json()["saved"] is False
+
+
+def test_update_module_endpoint_persists_original_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+    content = (
+        "name: Publico\n"
+        "description: Modulo publico atualizado.\n"
+        "\n"
+        "variables:\n"
+        "  data_inicio_carga:\n"
+        "    type: string\n"
+        "    value: \"2026-01-01 00:00:00\"\n"
+        "\n"
+        "plugins:\n"
+        "  - id: etapa\n"
+        "    type: command_line\n"
+        "    command:\n"
+        "      - /bin/echo\n"
+        "      - |\n"
+        "        linha um\n"
+        "        linha dois\n"
+    )
+
+    client = app.test_client()
+    response = client.put(
+        "/api/modules/publico",
+        json={"content": content},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["saved"] is True
+    assert (user_modules_dir / "publico.yaml").read_text(encoding="utf-8") == content
+    assert response.get_json()["yaml_content"] == content
 
 
 def test_create_active_run_signals_status_update() -> None:

@@ -652,7 +652,7 @@ def validate_module() -> Response:
                 "name": module["name"],
                 "plugins": len(module["plugins"]),
             },
-            "yaml_content": dump_module_yaml(module),
+            "yaml_content": content,
         }
     )
 
@@ -683,11 +683,11 @@ def create_module_config() -> Response:
 
     try:
         config = parse_module_yaml(content)
-        module = validate_module_config(module_id, config)
+        validate_module_config(module_id, config)
     except ValueError as exc:
         return jsonify({"saved": False, "message": str(exc)}), 400
 
-    write_module_config(module_id, module)
+    write_module_yaml_content(module_id, content)
     signal_app_update(
         scope="modules",
         module_id=module_id,
@@ -700,7 +700,7 @@ def create_module_config() -> Response:
             "id": module_id,
             "message": "Módulo criado.",
             "redirect": f"/modules/{module_id}/edit",
-            "yaml_content": dump_module_yaml(module),
+            "yaml_content": content,
         }
     ), 201
 
@@ -728,11 +728,11 @@ def update_module_config(module_name: str) -> Response:
 
     try:
         config = parse_module_yaml(content)
-        module = validate_module_config(module_name, config)
+        validate_module_config(module_name, config)
     except ValueError as exc:
         return jsonify({"saved": False, "message": str(exc)}), 400
 
-    write_module_config(module_name, module)
+    write_module_yaml_content(module_name, content)
     signal_app_update(
         scope="modules",
         module_id=module_name,
@@ -744,7 +744,7 @@ def update_module_config(module_name: str) -> Response:
             "saved": True,
             "id": module_name,
             "message": "Módulo salvo.",
-            "yaml_content": dump_module_yaml(module),
+            "yaml_content": content,
         }
     )
 
@@ -1088,6 +1088,10 @@ def dump_module_yaml(module: dict[str, Any]) -> str:
 
 def write_module_config(module_name: str, module: dict[str, Any]) -> None:
     module_config_path(module_name).write_text(dump_module_yaml(module), encoding="utf-8")
+
+
+def write_module_yaml_content(module_name: str, content: str) -> None:
+    module_config_path(module_name).write_text(content, encoding="utf-8")
 
 
 def delete_module_files(module_name: str) -> None:

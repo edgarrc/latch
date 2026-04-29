@@ -136,9 +136,6 @@
             return;
           }
 
-          if (typeof payload.yaml_content === "string") {
-            yamlContent.value = payload.yaml_content;
-          }
           showMessage("success", payload.message || "Configuração válida.");
         } catch (_error) {
           showMessage("danger", "Não foi possível validar a configuração.");

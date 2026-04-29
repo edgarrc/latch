@@ -263,8 +263,8 @@ A página principal possui o botão `Adicionar` e cada linha possui `Editar` ape
 
 A tela de edição trabalha com YAML bruto e oferece:
 
-- `Validate`: valida sintaxe YAML, campos obrigatórios, tipos de plugin, variáveis e placeholders sem persistir.
-- `Salvar`: valida novamente e grava em `modules/user/<nome>.yaml`.
+- `Validate`: valida sintaxe YAML, campos obrigatórios, tipos de plugin, variáveis e placeholders sem persistir e sem reformatar o conteúdo.
+- `Salvar`: valida novamente e grava o YAML bruto em `modules/user/<nome>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados no editor.
 - `Excluir`: remove o YAML do módulo e arquivos temporários relacionados.
 
 Criação, validação, salvamento e exclusão são ações exclusivas do `admin`. O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch.
