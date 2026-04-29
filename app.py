@@ -121,11 +121,12 @@ app.secret_key = load_persisted_secret_key() or secrets.token_urlsafe(32)
 
 
 @app.context_processor
-def inject_app_metadata() -> dict[str, str]:
+def inject_app_metadata() -> dict[str, str | None]:
     return {
         "app_name": APP_NAME,
         "app_tagline": APP_TAGLINE,
         "app_github_url": APP_GITHUB_URL,
+        "current_user": ADMIN_USERNAME if is_authenticated() else None,
     }
 
 

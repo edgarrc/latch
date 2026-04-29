@@ -208,9 +208,11 @@ O `run_id` identifica uma execução. A `sequence` reinicia a cada nova execuç�
 Padrões atuais:
 
 - Bootstrap via CDN.
+- O estilo visual compartilhado fica em `static/app.css`; evite CSS inline nos templates salvo exceção pontual justificada.
+- O visual padrão é inspirado no GitHub light: fundo claro, superfícies brancas, bordas finas, tabelas densas, azul para ação primária e vermelho apenas para ações destrutivas.
 - HTML simples em Jinja templates.
 - O nome público do produto é `Latch`.
-- Páginas autenticadas devem mostrar `Latch` no topo de forma discreta.
+- Páginas autenticadas devem mostrar o cabeçalho global com `Latch`, navegação para módulos, usuário logado e logout.
 - Login e setup devem mostrar `Latch` com destaque visual moderado.
 - Todas as páginas HTML devem incluir o rodapé compartilhado com a página oficial: `https://github.com/edgarrc/latch`.
 - Logs renderizados com `textContent`, nunca `innerHTML`.

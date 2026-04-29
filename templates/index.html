@@ -5,27 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='app.css') }}" rel="stylesheet">
   </head>
-  <body class="bg-body-tertiary min-vh-100 d-flex flex-column">
-    <main class="container flex-grow-1 py-4">
+  <body class="app-body min-vh-100 d-flex flex-column">
+    <main class="container app-shell flex-grow-1 py-4">
       {% include "_app_header.html" %}
-      <div class="d-flex align-items-center justify-content-between mb-4">
-        <h1 class="h3 mb-0">Módulos</h1>
-        <div class="d-flex gap-2">
-          <a class="btn btn-primary" href="/modules/new">Adicionar</a>
-          <form method="post" action="/logout">
-            <button class="btn btn-outline-secondary" type="submit">Logout</button>
-          </form>
+      <div class="toolbar page-heading">
+        <div>
+          <h1 class="page-title">Módulos</h1>
+          <p class="page-description">Gerencie os batches disponíveis, acompanhe status e abra a execução de cada módulo.</p>
         </div>
+        <a class="btn btn-primary" href="/modules/new">Adicionar módulo</a>
       </div>
 
-      <div class="table-responsive">
-        <table class="table table-hover align-middle bg-white border">
+      <div class="surface table-responsive">
+        <table class="table table-hover align-middle">
           <thead>
             <tr>
               <th scope="col">Módulo</th>
-              <th class="text-center" scope="col">Plugins</th>
               <th class="text-center" scope="col">Status</th>
+              <th class="text-center" scope="col">Plugins</th>
               <th class="text-end" scope="col">Ação</th>
             </tr>
           </thead>
@@ -33,22 +32,29 @@
             {% for module in modules %}
               <tr data-module-id="{{ module.id }}">
                 <td>
-                  <div class="fw-semibold">{{ module.name }}</div>
+                  <div class="module-name">{{ module.name }}</div>
+                  <div class="module-id">{{ module.id }}</div>
                   {% if module.description %}
-                    <div class="small text-secondary">{{ module.description }}</div>
+                    <div class="small text-secondary mt-1">{{ module.description }}</div>
                   {% endif %}
                 </td>
-                <td class="text-center">{{ module.plugins | length }}</td>
                 <td class="text-center">
                   <span class="badge module-status {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
                     {% if module.running %}Executando{% else %}Pronto{% endif %}
                   </span>
                 </td>
+                <td class="text-center fw-semibold">{{ module.plugins | length }}</td>
                 <td class="text-end">
                   <div class="btn-group btn-group-sm" role="group" aria-label="Ações do módulo">
                     <a class="btn btn-outline-primary" href="/{{ module.id }}">Abrir</a>
                     <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
                   </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td class="text-center text-secondary py-5" colspan="4">
+                  Nenhum módulo configurado.
                 </td>
               </tr>
             {% endfor %}

@@ -1,5 +1,19 @@
-<div class="d-flex align-items-center gap-2 text-secondary small mb-3">
-  <span class="fw-semibold text-body">{{ app_name }}</span>
-  <span aria-hidden="true">/</span>
-  <span>{{ app_tagline }}</span>
-</div>
+<header class="app-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <a class="app-brand" href="/">
+      <span class="app-brand-mark" aria-hidden="true">L</span>
+      <span>{{ app_name }}</span>
+    </a>
+    <nav class="d-flex align-items-center gap-1" aria-label="Navegação principal">
+      <a class="app-nav-link" href="/">Módulos</a>
+    </nav>
+  </div>
+  {% if current_user %}
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <span class="user-chip">{{ current_user }}</span>
+      <form method="post" action="/logout">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Logout</button>
+      </form>
+    </div>
+  {% endif %}
+</header>
