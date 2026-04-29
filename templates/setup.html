@@ -18,7 +18,7 @@
           </div>
         </div>
         <h1 class="h4 mb-2">Setup inicial</h1>
-        <p class="text-secondary mb-4">Defina a senha do usuário admin para proteger a operação do Latch.</p>
+        <p class="text-secondary mb-4">Defina as senhas dos usuários admin e user para proteger a operação do Latch.</p>
 
         {% if error %}
           <div class="alert alert-danger" role="alert">{{ error }}</div>
@@ -26,14 +26,22 @@
 
         <form method="post" action="/setup">
           <div class="mb-3">
-            <label class="form-label" for="password">Senha</label>
-            <input id="password" class="form-control" name="password" type="password" autocomplete="new-password" required autofocus>
+            <label class="form-label" for="adminPassword">Senha do admin</label>
+            <input id="adminPassword" class="form-control" name="admin_password" type="password" autocomplete="new-password" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="adminPasswordConfirm">Confirmar senha do admin</label>
+            <input id="adminPasswordConfirm" class="form-control" name="admin_password_confirm" type="password" autocomplete="new-password" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="userPassword">Senha do user</label>
+            <input id="userPassword" class="form-control" name="user_password" type="password" autocomplete="new-password" required>
           </div>
           <div class="mb-4">
-            <label class="form-label" for="password_confirm">Confirmar senha</label>
-            <input id="password_confirm" class="form-control" name="password_confirm" type="password" autocomplete="new-password" required>
+            <label class="form-label" for="userPasswordConfirm">Confirmar senha do user</label>
+            <input id="userPasswordConfirm" class="form-control" name="user_password_confirm" type="password" autocomplete="new-password" required>
           </div>
-          <button class="btn btn-primary w-100" type="submit">Salvar senha</button>
+          <button class="btn btn-primary w-100" type="submit">Salvar senhas</button>
         </form>
       </section>
     </main>

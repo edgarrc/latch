@@ -27,6 +27,7 @@ Estrutura principal:
 - `plugins/variables.py`: validação, resolução, substituição e mascaramento de variáveis de módulo usadas por comandos.
 - `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
 - `templates/_app_header.html` e `templates/_app_footer.html`: marca discreta e rodapé oficial compartilhados pelas páginas.
+- `settings.yaml`: configuração local de autenticação com hashes dos usuários fixos `admin` e `user`.
 - `locks/`: arquivos de lock por módulo usando `filelock`.
 - `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
 - `tests/`: testes de contrato e comportamento.
@@ -88,7 +89,10 @@ Variáveis de módulo:
 - Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
 - Módulos diferentes podem executar em paralelo.
 - A página principal lista módulos em formato tabular, com status em coluna própria.
-- A página principal permite adicionar módulos e editar módulos existentes.
+- O setup inicial cria senhas para os usuários fixos `admin` e `user`.
+- `admin` pode criar, editar, validar e excluir módulos.
+- `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs e solicitar `Kill`, mas não pode editar módulos.
+- A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`.
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
 - A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão.
 - `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos.
@@ -177,15 +181,15 @@ Validações:
 Rotas principais:
 
 - `GET /`: página principal com tabela de módulos.
-- `GET /modules/new`: tela para criar módulo.
-- `GET /modules/<module>/edit`: tela para editar módulo.
+- `GET /modules/new`: tela para criar módulo, restrita ao `admin`.
+- `GET /modules/<module>/edit`: tela para editar módulo, restrita ao `admin`.
 - `GET /<module>`: página do módulo.
 - `GET /api/modules/status`: status de todos os módulos.
 - `GET /api/modules/<module>/status`: status de um módulo.
-- `POST /api/modules/validate`: valida YAML de módulo sem persistir.
-- `POST /api/modules`: cria módulo em `modules/user/<module>.yaml`.
-- `PUT /api/modules/<module>`: salva YAML de módulo existente.
-- `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados.
+- `POST /api/modules/validate`: valida YAML de módulo sem persistir, restrita ao `admin`.
+- `POST /api/modules`: cria módulo em `modules/user/<module>.yaml`, restrita ao `admin`.
+- `PUT /api/modules/<module>`: salva YAML de módulo existente, restrita ao `admin`.
+- `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados, restrita ao `admin`.
 - `GET /api/modules/<module>/run`: inicia execução via SSE.
 - `GET /api/modules/<module>/logs`: lê logs persistidos incrementalmente.
 - `POST /api/modules/<module>/logs/clear`: limpa logs quando parado.

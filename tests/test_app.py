@@ -98,11 +98,20 @@ def enable_auth_with_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path) ->
     app.secret_key = "test-secret"
 
 
-def write_auth_settings(password: str = "secret") -> dict[str, str]:
-    settings = app_module.build_settings(password)
+def write_auth_settings(
+    admin_password: str = "secret",
+    user_password: str = "user-secret",
+) -> dict[str, object]:
+    settings = app_module.build_settings(admin_password, user_password)
     app_module.write_settings(settings)
     app.secret_key = settings["secret_key"]
     return settings
+
+
+def authenticate_client(client, username: str = "admin") -> None:
+    with client.session_transaction() as client_session:
+        client_session["user"] = username
+        client_session.permanent = True
 
 
 def configure_temp_runtime_dirs(
@@ -227,7 +236,12 @@ def test_setup_creates_settings_hash_and_authenticates(
     client = app.test_client()
     response = client.post(
         "/setup",
-        data={"password": "secret", "password_confirm": "secret"},
+        data={
+            "admin_password": "admin-secret",
+            "admin_password_confirm": "admin-secret",
+            "user_password": "user-secret",
+            "user_password_confirm": "user-secret",
+        },
     )
 
     settings = app_module.load_settings()
@@ -235,9 +249,17 @@ def test_setup_creates_settings_hash_and_authenticates(
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
     assert settings is not None
-    assert settings["username"] == "admin"
-    assert settings["password_hash"] != "secret"
-    assert check_password_hash(settings["password_hash"], "secret")
+    assert set(settings["users"]) == {"admin", "user"}
+    assert settings["users"]["admin"]["password_hash"] != "admin-secret"
+    assert settings["users"]["user"]["password_hash"] != "user-secret"
+    assert check_password_hash(
+        settings["users"]["admin"]["password_hash"],
+        "admin-secret",
+    )
+    assert check_password_hash(
+        settings["users"]["user"]["password_hash"],
+        "user-secret",
+    )
     assert settings["secret_key"]
     with client.session_transaction() as client_session:
         assert client_session["user"] == "admin"
@@ -329,17 +351,19 @@ def test_global_events_endpoint_streams_published_updates() -> None:
     assert payload["resources"] == ["logs"]
 
 
+@pytest.mark.parametrize("username", ["admin", "user"])
 def test_login_rejects_invalid_password(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    username: str,
 ) -> None:
     enable_auth_with_settings_path(monkeypatch, tmp_path)
-    write_auth_settings("secret")
+    write_auth_settings("secret", "user-secret")
 
     client = app.test_client()
     response = client.post(
         "/login",
-        data={"username": "admin", "password": "wrong"},
+        data={"username": username, "password": "wrong"},
     )
 
     assert response.status_code == 200
@@ -348,12 +372,12 @@ def test_login_rejects_invalid_password(
         assert "user" not in client_session
 
 
-def test_login_accepts_valid_password_and_logout_clears_session(
+def test_login_accepts_admin_password_and_logout_clears_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     enable_auth_with_settings_path(monkeypatch, tmp_path)
-    write_auth_settings("secret")
+    write_auth_settings("secret", "user-secret")
 
     client = app.test_client()
     login_response = client.post(
@@ -375,6 +399,26 @@ def test_login_accepts_valid_password_and_logout_clears_session(
     assert logout_response.headers["Location"].endswith("/login")
     with client.session_transaction() as client_session:
         assert "user" not in client_session
+
+
+def test_login_accepts_user_password(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings("secret", "user-secret")
+
+    client = app.test_client()
+    login_response = client.post(
+        "/login?next=/",
+        data={"username": "user", "password": "user-secret", "next": "/"},
+    )
+
+    assert login_response.status_code == 302
+    assert login_response.headers["Location"].endswith("/")
+    with client.session_transaction() as client_session:
+        assert client_session["user"] == "user"
+        assert client_session.permanent is True
 
 
 def test_load_module_config_reads_configured_plugins() -> None:
@@ -473,6 +517,93 @@ def test_index_renders_add_and_edit_actions(
     assert response.status_code == 200
     assert b"Adicionar" in response.data
     assert b"/modules/publico/edit" in response.data
+
+
+def test_user_index_hides_module_edit_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    authenticate_client(client, "user")
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert b"user" in response.data
+    assert b"Adicionar" not in response.data
+    assert b"/modules/publico/edit" not in response.data
+
+
+def test_user_cannot_access_module_edit_pages_or_apis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    authenticate_client(client, "user")
+    responses = [
+        client.get("/modules/new"),
+        client.get("/modules/publico/edit"),
+        client.post(
+            "/api/modules/validate",
+            json={"module_id": "publico", "content": "name: Publico\nplugins: []\n"},
+        ),
+        client.post(
+            "/api/modules",
+            json={"module_id": "novo", "content": "name: Novo\nplugins: []\n"},
+        ),
+        client.put(
+            "/api/modules/publico",
+            json={"content": "name: Publico\nplugins: []\n"},
+        ),
+        client.delete("/api/modules/publico"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 403
+
+    assert responses[2].get_json()["message"] == "Apenas admin pode editar módulos."
+    assert (user_modules_dir / "publico.yaml").exists()
+
+
+def test_user_can_access_operational_module_surfaces(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    enable_auth_with_settings_path(monkeypatch, tmp_path)
+    write_auth_settings()
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    authenticate_client(client, "user")
+    responses = [
+        client.get("/publico"),
+        client.get("/api/modules/status"),
+        client.get("/api/modules/publico/status"),
+        client.get("/api/modules/publico/logs"),
+        client.post("/api/modules/publico/logs/clear"),
+        client.post("/api/modules/publico/kill"),
+    ]
+
+    assert [response.status_code for response in responses] == [200, 200, 200, 200, 200, 409]
 
 
 def test_authenticated_pages_render_latch_branding_and_footer(

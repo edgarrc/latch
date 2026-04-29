@@ -15,7 +15,9 @@
           <h1 class="page-title">Módulos</h1>
           <p class="page-description">Gerencie os batches disponíveis, acompanhe status e abra a execução de cada módulo.</p>
         </div>
-        <a class="btn btn-primary" href="/modules/new">Adicionar módulo</a>
+        {% if current_is_admin %}
+          <a class="btn btn-primary" href="/modules/new">Adicionar módulo</a>
+        {% endif %}
       </div>
 
       <div class="surface table-responsive">
@@ -47,7 +49,9 @@
                 <td class="text-end">
                   <div class="btn-group btn-group-sm" role="group" aria-label="Ações do módulo">
                     <a class="btn btn-outline-primary" href="/{{ module.id }}">Abrir</a>
-                    <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
+                    {% if current_is_admin %}
+                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
+                    {% endif %}
                   </div>
                 </td>
               </tr>

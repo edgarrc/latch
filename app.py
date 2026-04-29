@@ -51,6 +51,8 @@ APP_NAME = "Latch"
 APP_TAGLINE = "Gerenciador batch"
 APP_GITHUB_URL = "https://github.com/edgarrc/latch"
 ADMIN_USERNAME = "admin"
+USER_USERNAME = "user"
+KNOWN_USERNAMES = (ADMIN_USERNAME, USER_USERNAME)
 SESSION_USER_KEY = "user"
 MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
@@ -90,11 +92,15 @@ def load_settings() -> dict[str, Any] | None:
     return settings
 
 
-def build_settings(password: str) -> dict[str, str]:
+def build_settings(admin_password: str, user_password: str) -> dict[str, Any]:
     timestamp = datetime.now(timezone.utc).isoformat()
     return {
-        "username": ADMIN_USERNAME,
-        "password_hash": generate_password_hash(password),
+        "users": {
+            ADMIN_USERNAME: {"password_hash": generate_password_hash(admin_password)},
+            USER_USERNAME: {
+                "password_hash": generate_password_hash(user_password)
+            },
+        },
         "secret_key": secrets.token_urlsafe(32),
         "created_at": timestamp,
         "updated_at": timestamp,
@@ -121,12 +127,13 @@ app.secret_key = load_persisted_secret_key() or secrets.token_urlsafe(32)
 
 
 @app.context_processor
-def inject_app_metadata() -> dict[str, str | None]:
+def inject_app_metadata() -> dict[str, Any]:
     return {
         "app_name": APP_NAME,
         "app_tagline": APP_TAGLINE,
         "app_github_url": APP_GITHUB_URL,
-        "current_user": ADMIN_USERNAME if is_authenticated() else None,
+        "current_user": current_username(),
+        "current_is_admin": is_admin(),
     }
 
 
@@ -345,14 +352,63 @@ def signal_app_update(
     )
 
 
+def password_hash_for_user(settings: dict[str, Any], username: str) -> str | None:
+    if username not in KNOWN_USERNAMES:
+        return None
+
+    users = settings.get("users")
+    if isinstance(users, dict):
+        user_settings = users.get(username)
+        if isinstance(user_settings, dict):
+            password_hash = user_settings.get("password_hash")
+            if isinstance(password_hash, str) and password_hash:
+                return password_hash
+
+    return None
+
+
+def current_username() -> str | None:
+    if app.config.get("AUTH_DISABLED"):
+        return ADMIN_USERNAME
+
+    username = session.get(SESSION_USER_KEY)
+    if not isinstance(username, str):
+        return None
+
+    settings = load_settings()
+    if settings is None or password_hash_for_user(settings, username) is None:
+        return None
+
+    return username
+
+
 def is_authenticated() -> bool:
-    return session.get(SESSION_USER_KEY) == ADMIN_USERNAME
+    return current_username() is not None
 
 
-def authenticate_session() -> None:
+def is_admin() -> bool:
+    return current_username() == ADMIN_USERNAME
+
+
+def authenticate_session(username: str) -> None:
     session.clear()
     session.permanent = True
-    session[SESSION_USER_KEY] = ADMIN_USERNAME
+    session[SESSION_USER_KEY] = username
+
+
+def require_admin_access() -> Response | tuple[Response, int] | None:
+    if app.config.get("AUTH_DISABLED"):
+        return None
+
+    if is_admin():
+        return None
+
+    message = "Apenas admin pode editar módulos."
+    if is_api_request():
+        return jsonify({"authorized": False, "message": message}), 403
+
+    abort(403, description=message)
+    return None
 
 
 def is_api_request() -> bool:
@@ -407,18 +463,24 @@ def setup() -> str | Response:
 
     error = ""
     if request.method == "POST":
-        password = request.form.get("password", "")
-        password_confirm = request.form.get("password_confirm", "")
+        admin_password = request.form.get("admin_password", "")
+        admin_password_confirm = request.form.get("admin_password_confirm", "")
+        user_password = request.form.get("user_password", "")
+        user_password_confirm = request.form.get("user_password_confirm", "")
 
-        if not password:
+        if not admin_password:
             error = "Informe a senha do admin."
-        elif password != password_confirm:
-            error = "A confirmação da senha não confere."
+        elif admin_password != admin_password_confirm:
+            error = "A confirmação da senha do admin não confere."
+        elif not user_password:
+            error = "Informe a senha do user."
+        elif user_password != user_password_confirm:
+            error = "A confirmação da senha do user não confere."
         else:
-            settings = build_settings(password)
+            settings = build_settings(admin_password, user_password)
             write_settings(settings)
             app.secret_key = settings["secret_key"]
-            authenticate_session()
+            authenticate_session(ADMIN_USERNAME)
             return redirect(url_for("index"))
 
     return render_template("setup.html", error=error)
@@ -435,14 +497,10 @@ def login() -> str | Response:
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
-        password_hash = settings.get("password_hash")
+        password_hash = password_hash_for_user(settings, username)
 
-        if (
-            username == ADMIN_USERNAME
-            and isinstance(password_hash, str)
-            and check_password_hash(password_hash, password)
-        ):
-            authenticate_session()
+        if isinstance(password_hash, str) and check_password_hash(password_hash, password):
+            authenticate_session(username)
             return redirect(next_url)
 
         error = "Usuário ou senha inválidos."
@@ -451,7 +509,7 @@ def login() -> str | Response:
         "login.html",
         error=error,
         next_url=next_url,
-        username=ADMIN_USERNAME,
+        username=request.form.get("username", ""),
     )
 
 
@@ -470,7 +528,11 @@ def index() -> str:
 
 
 @app.get("/modules/new")
-def new_module_page() -> str:
+def new_module_page() -> str | Response | tuple[Response, int]:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     return render_template(
         "module_edit.html",
         mode="create",
@@ -482,7 +544,11 @@ def new_module_page() -> str:
 
 
 @app.get("/modules/<module_name>/edit")
-def edit_module_page(module_name: str) -> str:
+def edit_module_page(module_name: str) -> str | Response | tuple[Response, int]:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     ensure_public_module_exists(module_name)
     module = module_with_status(module_name)
     return render_template(
@@ -549,6 +615,10 @@ def api_events() -> Response:
 
 @app.post("/api/modules/validate")
 def validate_module() -> Response:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     payload = request.get_json(silent=True) or {}
     module_id = payload.get("module_id") or "new_module"
     content = payload.get("content")
@@ -578,6 +648,10 @@ def validate_module() -> Response:
 
 @app.post("/api/modules")
 def create_module_config() -> Response:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     payload = request.get_json(silent=True) or {}
     module_id = payload.get("module_id")
     content = payload.get("content")
@@ -621,6 +695,10 @@ def create_module_config() -> Response:
 
 @app.put("/api/modules/<module_name>")
 def update_module_config(module_name: str) -> Response:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     ensure_public_module_exists(module_name)
     if is_module_running(module_name):
         return jsonify(
@@ -654,6 +732,10 @@ def update_module_config(module_name: str) -> Response:
 
 @app.delete("/api/modules/<module_name>")
 def delete_module_config(module_name: str) -> Response:
+    admin_response = require_admin_access()
+    if admin_response is not None:
+        return admin_response
+
     ensure_public_module_exists(module_name)
     if is_module_running(module_name):
         return jsonify(
