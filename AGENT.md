@@ -144,10 +144,20 @@ Regras:
 - `command` pode ser string ou lista de strings.
 - String usa `shell=True`.
 - Lista usa execução direta.
+- `pipeline` é opcional e deve ser string não vazia quando informado.
+- Com `pipeline`, o comando principal é conectado por pipe ao shell raw definido em
+  `pipeline` e executado via `/bin/bash -o pipefail -c`, com `shell=False`.
+- Em pipeline, comando principal em lista é convertido com `shlex.join(...)`; comando
+  principal string é usado como está.
+- `pipeline` é controlado integralmente pelo YAML: wrappers como `redis_client` não
+  propagam `host`, senha ou outros campos automaticamente para o lado direito do pipe.
 - Se o módulo tiver `variables`, placeholders `{variavel}` são substituídos antes do `subprocess`.
 - Em comando string, valores substituídos são escapados com `shlex.quote`.
 - Em comando lista, valores substituídos viram texto dentro do argumento correspondente, sem shell quoting.
+- Em `pipeline`, valores substituídos são escapados com `shlex.quote`, pois o campo é shell raw.
 - Logs de comando iniciado e metadados usam a versão mascarada do comando.
+- Quando `pipeline` está configurado, logs e metadados registram o comando mascarado completo
+  no formato `<comando> | <pipeline>`.
 - Linhas de stdout/stderr são mascaradas antes de virar `PluginEvent`.
 - Se `variables` estiver configurado, chaves literais em comandos devem ser escapadas como `{{` e `}}`.
 - O processo é iniciado com `start_new_session=True`, criando grupo próprio.
@@ -187,6 +197,7 @@ Campos:
 - `user`: texto opcional.
 - `password`: texto opcional.
 - `database`: texto opcional.
+- `pipeline`: texto opcional, shell raw do lado direito do pipe.
 - `error_contains`: texto opcional.
 - `success_contains`: texto opcional.
 
@@ -212,8 +223,10 @@ Comando montado internamente:
 
 Regras:
 
-- A execução é direta, com lista de argumentos e `shell=False`.
+- Sem `pipeline`, a execução é direta, com lista de argumentos e `shell=False`.
+- Com `pipeline`, herda a execução via `/bin/bash -o pipefail -c` do `CommandLinePlugin`.
 - Placeholders são resolvidos em `query`, `user`, `password` e `database`.
+- Placeholders também são resolvidos em `pipeline`.
 - `password` é sempre mascarado em logs e metadados, mesmo se não vier de variável `sensitive`.
 - O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
 
@@ -225,6 +238,7 @@ Campos:
 
 - `host`: texto opcional, montado como `-h <host>`.
 - `args`: obrigatório, como lista de argumentos ou string não vazia parseada com `shlex.split`.
+- `pipeline`: texto opcional, shell raw do lado direito do pipe.
 - `error_contains`: texto opcional.
 - `success_contains`: texto opcional.
 
@@ -234,11 +248,12 @@ Exemplo:
 plugins:
   - id: scan_redis
     type: redis_client
-    host: redis.youeduc.com.br
+    host: "{redis_host}"
     args:
       - --scan
       - --pattern
       - exp_superset_data_*
+    pipeline: "xargs redis-cli -h {redis_host} del"
     error_contains: ERROR
     success_contains: null
 ```
@@ -251,11 +266,13 @@ Comando montado internamente:
 
 Regras:
 
-- A execução é direta, com lista de argumentos e `shell=False`.
+- Sem `pipeline`, a execução é direta, com lista de argumentos e `shell=False`.
+- Com `pipeline`, herda a execução via `/bin/bash -o pipefail -c` do `CommandLinePlugin`.
 - `args` em lista deve conter apenas strings não vazias.
 - `args` em string é parseado com `shlex.split`.
 - Placeholders são resolvidos em `host` e `args`.
-- Pipelines shell, como `redis-cli --scan | xargs redis-cli del`, devem continuar em `command_line` ou virar um futuro plugin de alto nível específico.
+- Placeholders também são resolvidos em `pipeline`.
+- `host` não é propagado automaticamente para o `pipeline`; informe-o explicitamente se necessário.
 - O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
 
 ## Execução, Status e Logs

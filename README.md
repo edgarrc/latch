@@ -218,6 +218,8 @@ Regras importantes:
 #### `command_line`
 
 Executa um comando direto ou via shell, conforme o tipo de `command`.
+Opcionalmente, `pipeline` conecta a saída do comando principal a um shell raw no
+lado direito do pipe, executado com Bash `pipefail`.
 
 ```yaml
 plugins:
@@ -226,13 +228,14 @@ plugins:
     command:
       - /usr/bin/python3
       - /opt/scripts/rotina.py
+    pipeline: "grep concluido"
     error_contains: ERROR
     success_contains: concluido
 ```
 
 #### `clickhouse_client`
 
-Executa `/usr/bin/clickhouse-client` com argumentos montados pela aplicação. O campo `query` é obrigatório. `user`, `password` e `database` são opcionais. A senha é sempre mascarada em logs e metadados, mesmo quando não vier de uma variável `sensitive`.
+Executa `/usr/bin/clickhouse-client` com argumentos montados pela aplicação. O campo `query` é obrigatório. `user`, `password`, `database` e `pipeline` são opcionais. A senha é sempre mascarada em logs e metadados, mesmo quando não vier de uma variável `sensitive`.
 
 ```yaml
 plugins:
@@ -242,40 +245,48 @@ plugins:
     password: "{clickhouse_password}"
     database: "{clickhouse_database}"
     query: SELECT COUNT(*) FROM relat_base_avaliacao_resposta
+    pipeline: "grep -v '^0$'"
     error_contains: ERROR
     success_contains: null
 ```
 
-O comando final é executado sem shell:
+Sem `pipeline`, o comando final é executado sem shell:
 
 ```text
 /usr/bin/clickhouse-client --user ... --password ... --database ... --query ...
 ```
 
+Com `pipeline`, o comando é conectado ao lado direito informado e executado via
+`/bin/bash -o pipefail -c`, falhando se qualquer etapa do pipeline falhar.
+
 #### `redis_client`
 
-Executa `/usr/bin/redis-cli` com host e argumentos definidos pela configuração. O campo `host` é opcional. O campo `args` é obrigatório e pode ser lista de argumentos ou uma string interpretada com `shlex.split`.
+Executa `/usr/bin/redis-cli` com host e argumentos definidos pela configuração. O campo `host` é opcional. O campo `args` é obrigatório e pode ser lista de argumentos ou uma string interpretada com `shlex.split`. O campo `pipeline` é opcional e representa o shell raw à direita do pipe.
 
 ```yaml
 plugins:
   - id: scan_redis
     type: redis_client
-    host: redis.youeduc.com.br
+    host: "{redis_host}"
     args:
       - --scan
       - --pattern
       - exp_superset_data_*
+    pipeline: "xargs redis-cli -h {redis_host} del"
     error_contains: ERROR
     success_contains: null
 ```
 
-O comando final é executado sem shell:
+Sem `pipeline`, o comando final é executado sem shell:
 
 ```text
 /usr/bin/redis-cli -h <host> <args...>
 ```
 
-Pipelines de shell, como `redis-cli --scan | xargs redis-cli del`, devem continuar em `command_line` ou ser implementados futuramente como um plugin de alto nível específico.
+Com `pipeline`, o comando montado é convertido para shell com `shlex.join(...)` e
+conectado ao `pipeline`. O `host` do `redis_client` não é propagado
+automaticamente para esse lado direito; informe-o explicitamente no `pipeline`
+quando necessário.
 
 ## Executando Localmente
 

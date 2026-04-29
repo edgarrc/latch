@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import stat
 import sys
 import threading
@@ -98,6 +99,35 @@ def test_clickhouse_client_masks_password_in_logs_and_metadata(
     assert "command" in metadata
 
 
+def test_clickhouse_client_runs_pipeline_with_fake_client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_client = write_fake_client(tmp_path)
+    monkeypatch.setattr(
+        clickhouse_client_module,
+        "CLICKHOUSE_CLIENT_BINARY",
+        str(fake_client),
+    )
+    pipeline = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; data=sys.stdin.read().splitlines(); print(\"PIPE:\" + data[-1])'"
+    )
+    plugin = ClickHouseClientPlugin(
+        "consultar",
+        {
+            "type": "clickhouse_client",
+            "query": "SELECT 1",
+            "pipeline": pipeline,
+        },
+    )
+
+    messages = collect(plugin)
+
+    assert any("PIPE:SELECT 1" in message for message in messages)
+    assert plugin.command[0] == str(fake_client)
+
+
 def test_redis_client_builds_argv_from_list_and_string() -> None:
     list_plugin = RedisClientPlugin(
         "scan_lista",
@@ -132,6 +162,33 @@ def test_redis_client_builds_argv_from_list_and_string() -> None:
         "--pattern",
         "exp *",
     ]
+
+
+def test_redis_client_runs_pipeline_with_fake_client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_client = write_fake_client(tmp_path)
+    monkeypatch.setattr(redis_client_module, "REDIS_CLI_BINARY", str(fake_client))
+    metadata: dict[str, object] = {}
+    pipeline = f"xargs {shlex.quote(str(fake_client))} -h redis.local del"
+    plugin = RedisClientPlugin(
+        "scan_delete",
+        {
+            "type": "redis_client",
+            "host": "redis.local",
+            "args": ["--scan", "--pattern", "exp_*"],
+            "pipeline": pipeline,
+        },
+    )
+    plugin.set_runtime_context("modulo", "run-id", metadata.update)
+
+    messages = collect(plugin)
+
+    assert any("del" in message for message in messages)
+    assert any("exp_*" in message for message in messages)
+    assert str(metadata["command"]).startswith(shlex.quote(str(fake_client)))
+    assert f"| {pipeline}" in str(metadata["command"])
 
 
 def test_client_plugins_preserve_command_line_output_validation(
@@ -195,6 +252,7 @@ def test_client_plugins_replace_variables_in_structured_fields() -> None:
             "password": "{clickhouse_password}",
             "database": "{clickhouse_database}",
             "query": "SELECT * FROM eventos LIMIT {limite}",
+            "pipeline": "cat {clickhouse_password} {clickhouse_database}",
         },
         variables,
     )
@@ -205,6 +263,7 @@ def test_client_plugins_replace_variables_in_structured_fields() -> None:
             "type": "redis_client",
             "host": "{redis_host}",
             "args": "--scan --pattern {pattern}",
+            "pipeline": "xargs redis-cli -h {redis_host} del",
         },
         variables,
     )
@@ -214,6 +273,10 @@ def test_client_plugins_replace_variables_in_structured_fields() -> None:
     assert "secret-value" in clickhouse_plugin.command
     assert "secret-value" not in clickhouse_plugin.display_command
     assert "****" in clickhouse_plugin.display_command
+    assert clickhouse_plugin.pipeline == "cat secret-value default"
+    assert clickhouse_plugin.display_pipeline == "cat **** default"
+    assert "cat **** default" in clickhouse_plugin._display_command()
+    assert "secret-value" not in clickhouse_plugin._display_command()
     assert redis_plugin.command == [
         "/usr/bin/redis-cli",
         "-h",
@@ -222,6 +285,8 @@ def test_client_plugins_replace_variables_in_structured_fields() -> None:
         "--pattern",
         "exp_*",
     ]
+    assert redis_plugin.pipeline == "xargs redis-cli -h redis.local del"
+    assert redis_plugin.display_pipeline == "xargs redis-cli -h redis.local del"
 
 
 def test_client_plugins_reject_invalid_required_fields() -> None:

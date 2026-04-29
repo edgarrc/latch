@@ -84,6 +84,7 @@ def prepare_command_plugin_config(
     prepared_config["command"] = resolved_command
     prepared_config["_display_command"] = display_command_as_text(display_command)
     prepared_config["_sensitive_values"] = resolved_variables.sensitive_values
+    render_pipeline_config(prepared_config, resolved_variables)
     return prepared_config
 
 
@@ -100,6 +101,7 @@ def prepare_plugin_config(
     resolved_variables = resolve_variables(variable_definitions)
     prepared_config = dict(plugin_config)
     prepared_config["_sensitive_values"] = resolved_variables.sensitive_values
+    render_pipeline_config(prepared_config, resolved_variables)
 
     if plugin_type == "clickhouse_client":
         for field_name in ("user", "password", "database", "query"):
@@ -143,6 +145,28 @@ def prepare_plugin_config(
         return prepared_config
 
     return plugin_config
+
+
+def render_pipeline_config(
+    prepared_config: dict[str, Any],
+    resolved_variables: ResolvedVariables,
+) -> None:
+    pipeline = prepared_config.get("pipeline")
+    if not isinstance(pipeline, str):
+        return
+
+    prepared_config["pipeline"] = render_template(
+        pipeline,
+        resolved_variables,
+        quote_for_shell=True,
+        mask_sensitive=False,
+    )
+    prepared_config["_display_pipeline"] = render_template(
+        pipeline,
+        resolved_variables,
+        quote_for_shell=True,
+        mask_sensitive=True,
+    )
 
 
 def resolve_variables(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import queue
+import shlex
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -26,9 +27,11 @@ class CommandLinePlugin(BasePlugin):
     def __init__(self, plugin_id: str, config: dict[str, Any]) -> None:
         super().__init__(plugin_id, config)
         self.command = config.get("command")
+        self.pipeline = config.get("pipeline")
         self.error_contains = config.get("error_contains")
         self.success_contains = config.get("success_contains")
         self.display_command = config.get("_display_command")
+        self.display_pipeline = config.get("_display_pipeline")
         self.sensitive_values = tuple(config.get("_sensitive_values", ()))
         self._process: subprocess.Popen[str] | None = None
         self._process_group_id: int | None = None
@@ -43,12 +46,17 @@ class CommandLinePlugin(BasePlugin):
             raise ValueError(
                 f"Plugin {plugin_id!r} command list must contain only non-empty strings."
             )
+        if self.pipeline is not None:
+            if not isinstance(self.pipeline, str) or not self.pipeline.strip():
+                raise ValueError(f"Plugin {plugin_id!r} pipeline must be a non-empty string.")
         if self.error_contains is not None and not isinstance(self.error_contains, str):
             raise ValueError(f"Plugin {plugin_id!r} error_contains must be a string.")
         if self.success_contains is not None and not isinstance(self.success_contains, str):
             raise ValueError(f"Plugin {plugin_id!r} success_contains must be a string.")
         if self.display_command is not None and not isinstance(self.display_command, str):
             raise ValueError(f"Plugin {plugin_id!r} display command must be a string.")
+        if self.display_pipeline is not None and not isinstance(self.display_pipeline, str):
+            raise ValueError(f"Plugin {plugin_id!r} display pipeline must be a string.")
         if not all(isinstance(value, str) for value in self.sensitive_values):
             raise ValueError(f"Plugin {plugin_id!r} sensitive values must be strings.")
 
@@ -58,9 +66,10 @@ class CommandLinePlugin(BasePlugin):
         process: subprocess.Popen[str] | None = None
         try:
             try:
+                popen_command, use_shell = self._popen_command()
                 process = subprocess.Popen(
-                    self.command,
-                    shell=isinstance(self.command, str),
+                    popen_command,
+                    shell=use_shell,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -232,17 +241,47 @@ class CommandLinePlugin(BasePlugin):
             output_queue.put((stream_name, None))
 
     def _display_command(self) -> str:
+        command = self._display_command_head()
+        if self.pipeline is None:
+            return self._mask_text(command)
+
+        return self._mask_text(f"{command} | {self._display_pipeline()}")
+
+    def _display_command_head(self) -> str:
         if self.display_command is not None:
             return self.display_command
         if isinstance(self.command, list):
+            if self.pipeline is not None:
+                return shlex.join(self.command)
             return " ".join(str(part) for part in self.command)
         return self.command
+
+    def _display_pipeline(self) -> str:
+        if self.display_pipeline is not None:
+            return self.display_pipeline
+        return self.pipeline or ""
 
     def _display_command_preview(self) -> str:
         command = self._display_command()
         if len(command) <= COMMAND_LOG_PREVIEW_LIMIT:
             return command
         return f"{command[:COMMAND_LOG_PREVIEW_LIMIT]}[...]"
+
+    def _popen_command(self) -> tuple[str | list[str], bool]:
+        if self.pipeline is None:
+            return self.command, isinstance(self.command, str)
+
+        if isinstance(self.command, str):
+            command_text = self.command
+        else:
+            command_text = shlex.join(self.command)
+        return [
+            "/bin/bash",
+            "-o",
+            "pipefail",
+            "-c",
+            f"{command_text} | {self.pipeline}",
+        ], False
 
     def _mask_text(self, text: str) -> str:
         return mask_sensitive_text(text, self.sensitive_values)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import sys
 
 import pytest
@@ -30,6 +31,55 @@ def test_command_line_plugin_succeeds_with_success_string() -> None:
 
     assert any("batch concluido" in message for message in messages)
     assert any("exit code 0" in message for message in messages)
+
+
+def test_command_line_plugin_runs_list_command_through_pipeline() -> None:
+    command = [
+        sys.executable,
+        "-c",
+        "print('pipeline ok')",
+    ]
+    pipeline = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; sys.stdout.write(sys.stdin.read().upper())'"
+    )
+    metadata: dict[str, object] = {}
+    plugin = CommandLinePlugin(
+        "pipe",
+        {
+            "command": command,
+            "pipeline": pipeline,
+        },
+    )
+    plugin.set_runtime_context("modulo", "run-id", metadata.update)
+
+    messages = collect(plugin)
+
+    full_display_command = f"{shlex.join(command)} | {pipeline}"
+    assert messages[0] == f"Iniciando comando: {full_display_command}"
+    assert any("PIPELINE OK" in message for message in messages)
+    assert metadata["command"] == full_display_command
+
+
+def test_command_line_plugin_pipeline_uses_pipefail() -> None:
+    pipeline = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; sys.stdin.read(); sys.exit(0)'"
+    )
+    plugin = CommandLinePlugin(
+        "pipefail",
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import sys; print('left failed'); sys.exit(7)",
+            ],
+            "pipeline": pipeline,
+        },
+    )
+
+    with pytest.raises(PluginExecutionError, match="exit code 7"):
+        collect(plugin)
 
 
 def test_command_line_plugin_truncates_started_command_log() -> None:
@@ -109,6 +159,12 @@ def test_command_line_plugin_fails_when_success_string_is_missing() -> None:
 def test_command_line_plugin_rejects_invalid_command_list() -> None:
     with pytest.raises(ValueError, match="non-empty strings"):
         CommandLinePlugin("invalid", {"command": ["echo", "ok", 1]})
+
+
+@pytest.mark.parametrize("pipeline", ["", "   ", ["cat"]])
+def test_command_line_plugin_rejects_invalid_pipeline(pipeline: object) -> None:
+    with pytest.raises(ValueError, match="pipeline must be a non-empty string"):
+        CommandLinePlugin("invalid", {"command": "echo ok", "pipeline": pipeline})
 
 
 def test_variable_definitions_reject_invalid_schema() -> None:
@@ -231,3 +287,26 @@ def test_command_line_plugin_masks_sensitive_values_in_logs_and_metadata() -> No
     assert all("secret-value" not in message for message in messages)
     assert "secret-value" not in str(metadata)
     assert "****" in str(metadata)
+
+
+def test_command_line_plugin_masks_sensitive_values_in_pipeline() -> None:
+    metadata: dict[str, object] = {}
+    pipeline = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; print(sys.argv[1]); sys.stdin.read()' {password}"
+    )
+    config = prepare_command_plugin_config(
+        {
+            "command": "printf ready",
+            "pipeline": pipeline,
+        },
+        {"password": {"type": "sensitive", "value": "secret-value"}},
+    )
+    plugin = CommandLinePlugin("with_secret_pipeline", config)
+    plugin.set_runtime_context("teste_automatizado", "run-id", metadata.update)
+
+    messages = collect(plugin)
+
+    serialized = "\n".join(messages) + repr(metadata)
+    assert "secret-value" not in serialized
+    assert "****" in serialized
