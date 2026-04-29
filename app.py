@@ -51,6 +51,7 @@ MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
     "command_line": "plugins.command_line.CommandLinePlugin",
 }
+SYSTEM_MODULE_IDS = {"teste_automatizado"}
 ACTIVE_MODULES: set[str] = set()
 ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
 ACTIVE_MODULES_LOCK = threading.Lock()
@@ -455,7 +456,7 @@ def new_module_page() -> str:
 
 @app.get("/modules/<module_name>/edit")
 def edit_module_page(module_name: str) -> str:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
     module = module_with_status(module_name)
     return render_template(
         "module_edit.html",
@@ -469,6 +470,7 @@ def edit_module_page(module_name: str) -> str:
 
 @app.get("/<module_name>")
 def module_page(module_name: str) -> str:
+    ensure_public_module_exists(module_name)
     module = module_with_status(module_name)
     return render_template("module.html", module=module)
 
@@ -487,7 +489,7 @@ def modules_status() -> Response:
 
 @app.get("/api/modules/<module_name>/status")
 def module_status(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
     return jsonify({"id": module_name, "running": is_module_running(module_name)})
 
 
@@ -528,6 +530,7 @@ def validate_module() -> Response:
 
     try:
         validate_module_id(str(module_id))
+        ensure_not_system_module(str(module_id))
         config = parse_module_yaml(content)
         module = validate_module_config(str(module_id), config)
     except ValueError as exc:
@@ -558,6 +561,7 @@ def create_module_config() -> Response:
 
     try:
         validate_module_id(module_id)
+        ensure_not_system_module(module_id)
     except ValueError as exc:
         return jsonify({"saved": False, "message": str(exc)}), 400
 
@@ -590,7 +594,7 @@ def create_module_config() -> Response:
 
 @app.put("/api/modules/<module_name>")
 def update_module_config(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
     if is_module_running(module_name):
         return jsonify(
             {
@@ -623,7 +627,7 @@ def update_module_config(module_name: str) -> Response:
 
 @app.delete("/api/modules/<module_name>")
 def delete_module_config(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
     if is_module_running(module_name):
         return jsonify(
             {
@@ -645,7 +649,7 @@ def delete_module_config(module_name: str) -> Response:
 
 @app.get("/api/modules/<module_name>/logs")
 def module_logs(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
 
     since = request.args.get("since", default=0, type=int) or 0
     current_run_id = request.args.get("run_id", default="", type=str)
@@ -678,7 +682,7 @@ def module_logs(module_name: str) -> Response:
 
 @app.post("/api/modules/<module_name>/logs/clear")
 def clear_module_logs(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
 
     if is_module_running(module_name):
         return jsonify(
@@ -702,7 +706,7 @@ def clear_module_logs(module_name: str) -> Response:
 
 @app.post("/api/modules/<module_name>/kill")
 def kill_module(module_name: str) -> Response:
-    ensure_module_exists(module_name)
+    ensure_public_module_exists(module_name)
 
     active_run = get_active_run(module_name)
     if active_run is None:
@@ -761,6 +765,7 @@ def kill_module(module_name: str) -> Response:
 
 @app.get("/api/modules/<module_name>/run")
 def run_module(module_name: str) -> Response:
+    ensure_public_module_exists(module_name)
     module = load_module_config(module_name)
     return Response(
         stream_with_context(stream_batch(module)),
@@ -772,11 +777,24 @@ def run_module(module_name: str) -> Response:
     )
 
 
-def discover_module_names() -> list[str]:
+def is_system_module(module_name: str) -> bool:
+    return module_name in SYSTEM_MODULE_IDS
+
+
+def ensure_not_system_module(module_name: str) -> None:
+    if is_system_module(module_name):
+        raise ValueError("ID reservado para uso interno do sistema.")
+
+
+def discover_module_names(*, include_system: bool = False) -> list[str]:
     module_names = [
         path.stem
         for path in MODULES_DIR.glob("*.yaml")
-        if path.is_file() and MODULE_ID_RE.fullmatch(path.stem)
+        if (
+            path.is_file()
+            and MODULE_ID_RE.fullmatch(path.stem)
+            and (include_system or not is_system_module(path.stem))
+        )
     ]
     return sorted(module_names)
 
@@ -800,6 +818,12 @@ def ensure_module_exists(module_name: str) -> None:
         abort(404)
     if not config_path.exists():
         abort(404)
+
+
+def ensure_public_module_exists(module_name: str) -> None:
+    if is_system_module(module_name):
+        abort(404)
+    ensure_module_exists(module_name)
 
 
 def read_module_yaml(module_name: str) -> str:

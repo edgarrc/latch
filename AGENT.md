@@ -211,6 +211,12 @@ Padrões atuais:
 - SSE global usado para sinalizar alterações vindas do backend sem polling periódico.
 - Endpoints de status/logs continuam sendo a fonte dos dados; o SSE global apenas invalida a tela e o frontend faz `fetch` quando recebe o sinal.
 
+Módulos de sistema:
+
+- `teste_automatizado` é reservado para testes automatizados e arquitetura interna.
+- Não deve aparecer na listagem, status global ou rotas públicas da interface/API.
+- Pode ser editado livremente por agentes para cobrir comportamentos de teste, mas não deve ser usado como módulo de usuário ou exemplo de produto.
+
 Estados da tela do módulo:
 
 - `Pronto`: pode executar e limpar; kill desabilitado.

@@ -1,0 +1,15 @@
+name: Teste automatizado
+description: Modulo usado exclusivamente pela suite de testes automatizados.
+plugins:
+  - id: preparar_teste
+    type: command_line
+    description: Etapa inicial usada pelos testes.
+    command: echo preparar_teste concluido
+    error_contains: ERROR
+    success_contains: concluido
+  - id: processar_teste
+    type: command_line
+    description: Segunda etapa usada pelos testes.
+    command: echo processar_teste concluido
+    error_contains: ERROR
+    success_contains: concluido

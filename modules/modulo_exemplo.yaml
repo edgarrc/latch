@@ -1,5 +1,5 @@
-name: Analítico
-description: Demonstra variáveis string, integer e sensitive em comandos analíticos.
+name: Módulo de exemplo
+description: Demonstra variáveis string, integer e sensitive em comandos.
 variables:
   nome_rotina:
     type: string

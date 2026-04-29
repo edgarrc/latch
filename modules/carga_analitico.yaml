@@ -1,0 +1,25 @@
+name: Carga analitico
+description: Remove os registros do ano atual da base materializada de filtros.
+variables:
+  clickhouse_user:
+    type: string
+    value: default
+  clickhouse_password:
+    type: sensitive
+    value: $CLICKHOUSE_PASSWORD
+plugins:
+  - id: limpar_filtros_relat_base_avaliacao_resposta
+    type: command_line
+    description: Remove dados do ano atual antes da carga analitica.
+    command:
+      - /usr/bin/clickhouse-client
+      - --user
+      - "{clickhouse_user}"
+      - --password
+      - "{clickhouse_password}"
+      - --query
+      - |
+        DELETE FROM eduplus.mv_filtros_relat_base_avaliacao_resposta
+        WHERE ano = toYear(now());
+    error_contains: ERROR
+    success_contains: null

@@ -90,7 +90,7 @@ def test_command_line_plugin_rejects_invalid_command_list() -> None:
 def test_variable_definitions_reject_invalid_schema() -> None:
     with pytest.raises(ValueError, match="unsupported keys"):
         validate_variable_definitions(
-            "tri",
+            "teste_automatizado",
             {
                 "password": {
                     "type": "sensitive",
@@ -199,7 +199,7 @@ def test_command_line_plugin_masks_sensitive_values_in_logs_and_metadata() -> No
         {"password": {"type": "sensitive", "value": "secret-value"}},
     )
     plugin = CommandLinePlugin("with_secret", config)
-    plugin.set_runtime_context("tri", "run-id", metadata.update)
+    plugin.set_runtime_context("teste_automatizado", "run-id", metadata.update)
 
     messages = collect(plugin)
 

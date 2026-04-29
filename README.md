@@ -20,7 +20,7 @@ Casos de uso típicos:
 
 ## Funcionalidades
 
-- Módulos acessíveis por rota, como `/tri` e `/analitico`.
+- Módulos acessíveis por rota, como `/modulo_exemplo` e `/carga_analitico`.
 - Configuração de plugins por YAML.
 - Criação e edição de módulos pela interface web.
 - Validação de YAML antes de salvar.
@@ -56,8 +56,7 @@ Casos de uso típicos:
 .
 ├── app.py
 ├── modules/
-│   ├── analitico.yaml
-│   └── tri.yaml
+│   └── *.yaml
 ├── plugins/
 │   ├── base.py
 │   ├── command_line.py

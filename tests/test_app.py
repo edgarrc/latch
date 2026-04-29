@@ -98,13 +98,52 @@ def write_auth_settings(password: str = "secret") -> dict[str, str]:
     return settings
 
 
+def configure_temp_runtime_dirs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    modules_dir = tmp_path / "modules"
+    temp_dir = tmp_path / "temp"
+    locks_dir = tmp_path / "locks"
+    modules_dir.mkdir()
+    temp_dir.mkdir()
+    locks_dir.mkdir()
+    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
+    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
+    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+    return modules_dir, temp_dir, locks_dir
+
+
+def write_public_test_module(modules_dir, module_id: str = "publico") -> None:
+    modules_dir.joinpath(f"{module_id}.yaml").write_text(
+        (
+            "name: Publico\n"
+            "description: Modulo publico temporario.\n"
+            "plugins:\n"
+            "  - id: preparar_publico\n"
+            "    type: command_line\n"
+            "    description: Etapa publica temporaria.\n"
+            "    command: echo preparar_publico concluido\n"
+            "    error_contains: ERROR\n"
+            "    success_contains: concluido\n"
+            "  - id: processar_publico\n"
+            "    type: command_line\n"
+            "    description: Segunda etapa publica temporaria.\n"
+            "    command: echo processar_publico concluido\n"
+            "    error_contains: ERROR\n"
+            "    success_contains: concluido\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_app_event_hub_publishes_and_replays_events() -> None:
     event_hub = app_module.AppEventHub(history_size=10)
     subscriber = event_hub.subscribe()
 
     event = event_hub.publish(
         scope="module",
-        module_id="tri",
+        module_id="teste_automatizado",
         resources=["logs"],
         reason="test_event",
     )
@@ -129,13 +168,13 @@ def test_application_monitor_coalesces_updates_by_scope_and_module() -> None:
 
     monitor.signal(
         scope="module",
-        module_id="tri",
+        module_id="teste_automatizado",
         resources=["logs"],
         reason="batch_log",
     )
     monitor.signal(
         scope="module",
-        module_id="tri",
+        module_id="teste_automatizado",
         resources=["status"],
         reason="batch_started",
     )
@@ -143,7 +182,7 @@ def test_application_monitor_coalesces_updates_by_scope_and_module() -> None:
     event = wait_for_event(subscriber)
 
     assert event.scope == "module"
-    assert event.module_id == "tri"
+    assert event.module_id == "teste_automatizado"
     assert event.resources == ["logs", "status"]
     assert event.reason == "batch_started"
     event_hub.unsubscribe(subscriber)
@@ -238,7 +277,7 @@ def test_global_events_endpoint_streams_published_updates() -> None:
     client = app.test_client()
     event = app_module.EVENT_HUB.publish(
         scope="module",
-        module_id="tri",
+        module_id="teste_automatizado",
         resources=["logs"],
         reason="test_stream",
     )
@@ -259,7 +298,7 @@ def test_global_events_endpoint_streams_published_updates() -> None:
     assert "event: app_update" in chunk
     payload = parse_sse_data(chunk)
     assert payload["scope"] == "module"
-    assert payload["module_id"] == "tri"
+    assert payload["module_id"] == "teste_automatizado"
     assert payload["resources"] == ["logs"]
 
 
@@ -312,12 +351,31 @@ def test_login_accepts_valid_password_and_logout_clears_session(
 
 
 def test_load_module_config_reads_configured_plugins() -> None:
-    module = load_module_config("tri")
+    module = load_module_config("teste_automatizado")
 
-    assert module["id"] == "tri"
+    assert module["id"] == "teste_automatizado"
     assert module["description"]
-    assert module["plugins"][0]["id"] == "preparar_tri"
+    assert module["plugins"][0]["id"] == "preparar_teste"
     assert module["plugins"][0]["description"]
+
+
+def test_carga_analitico_module_declares_clickhouse_delete_command() -> None:
+    module = load_module_config("carga_analitico")
+    plugin = module["plugins"][0]
+
+    assert module["variables"]["clickhouse_user"] == {
+        "type": "string",
+        "value": "default",
+    }
+    assert module["variables"]["clickhouse_password"] == {
+        "type": "sensitive",
+        "value": "$CLICKHOUSE_PASSWORD",
+    }
+    assert plugin["command"][0] == "/usr/bin/clickhouse-client"
+    assert "{clickhouse_user}" in plugin["command"]
+    assert "{clickhouse_password}" in plugin["command"]
+    assert "DELETE FROM eduplus.mv_filtros_relat_base_avaliacao_resposta" in plugin["command"][-1]
+    assert "WHERE ano = toYear(now());" in plugin["command"][-1]
 
 
 def test_discover_module_names_reads_yaml_files(
@@ -332,31 +390,66 @@ def test_discover_module_names_reads_yaml_files(
     assert discover_module_names() == ["alpha", "zeta"]
 
 
-def test_module_page_renders_plugin_status_column() -> None:
+def test_system_module_is_hidden_from_public_surfaces() -> None:
     client = app.test_client()
-    response = client.get("/tri")
+
+    index_response = client.get("/")
+    status_response = client.get("/api/modules/status")
+
+    assert index_response.status_code == 200
+    assert b"teste_automatizado" not in index_response.data
+    assert "teste_automatizado" not in status_response.get_json()["modules"]
+    assert client.get("/teste_automatizado").status_code == 404
+    assert client.get("/modules/teste_automatizado/edit").status_code == 404
+    assert client.get("/api/modules/teste_automatizado/status").status_code == 404
+    assert client.get("/api/modules/teste_automatizado/logs").status_code == 404
+    assert client.get("/api/modules/teste_automatizado/run").status_code == 404
+    assert client.delete("/api/modules/teste_automatizado").status_code == 404
+
+
+def test_module_page_renders_plugin_status_column(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+
+    client = app.test_client()
+    response = client.get("/publico")
 
     assert response.status_code == 200
     assert b"Status" in response.data
     assert b"Descri" in response.data
-    assert b"data-plugin-id=\"preparar_tri\"" in response.data
+    assert b"data-plugin-id=\"preparar_publico\"" in response.data
     assert "Não iniciado".encode() in response.data
 
 
-def test_index_renders_add_and_edit_actions() -> None:
+def test_index_renders_add_and_edit_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+
     client = app.test_client()
     response = client.get("/")
 
     assert response.status_code == 200
     assert b"Adicionar" in response.data
-    assert b"/modules/tri/edit" in response.data
+    assert b"/modules/publico/edit" in response.data
 
 
-def test_pages_subscribe_to_global_events_instead_of_polling() -> None:
+def test_pages_subscribe_to_global_events_instead_of_polling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+
     client = app.test_client()
 
     index_response = client.get("/")
-    module_response = client.get("/tri")
+    module_response = client.get("/publico")
 
     assert b'new EventSource("/api/events")' in index_response.data
     assert b'new EventSource("/api/events")' in module_response.data
@@ -415,16 +508,21 @@ def test_create_module_endpoint_persists_yaml(
     )
 
 
-def test_update_module_endpoint_blocks_running_module() -> None:
-    create_active_run("tri", "test-run")
+def test_update_module_endpoint_blocks_running_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    create_active_run("publico", "test-run")
 
     try:
         client = app.test_client()
         response = client.put(
-            "/api/modules/tri",
+            "/api/modules/publico",
             json={
                 "content": (
-                    "name: TRI\n"
+                    "name: Publico\n"
                     "plugins:\n"
                     "  - id: etapa\n"
                     "    type: command_line\n"
@@ -433,7 +531,7 @@ def test_update_module_endpoint_blocks_running_module() -> None:
             },
         )
     finally:
-        remove_active_run("tri")
+        remove_active_run("publico")
 
     assert response.status_code == 409
     assert response.get_json()["saved"] is False
@@ -443,14 +541,14 @@ def test_create_active_run_signals_status_update() -> None:
     subscriber = app_module.EVENT_HUB.subscribe()
 
     try:
-        create_active_run("tri", "test-run")
+        create_active_run("teste_automatizado", "test-run")
         event = wait_for_event_reason(subscriber, "batch_started")
     finally:
-        remove_active_run("tri")
+        remove_active_run("teste_automatizado")
         app_module.EVENT_HUB.unsubscribe(subscriber)
 
     assert event.scope == "module"
-    assert event.module_id == "tri"
+    assert event.module_id == "teste_automatizado"
     assert event.resources == ["status"]
     assert event.reason == "batch_started"
 
@@ -492,21 +590,26 @@ def test_delete_module_endpoint_removes_module_and_temporary_files(
     assert not lock_path.exists()
 
 
-def test_delete_module_endpoint_blocks_running_module() -> None:
-    create_active_run("tri", "test-run")
+def test_delete_module_endpoint_blocks_running_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    create_active_run("publico", "test-run")
 
     try:
         client = app.test_client()
-        response = client.delete("/api/modules/tri")
+        response = client.delete("/api/modules/publico")
     finally:
-        remove_active_run("tri")
+        remove_active_run("publico")
 
     assert response.status_code == 409
     assert response.get_json()["deleted"] is False
 
 
 def test_stream_batch_reports_locked_module() -> None:
-    module = load_module_config("tri")
+    module = load_module_config("teste_automatizado")
     events = stream_batch(module)
     next(events)
 
@@ -518,23 +621,46 @@ def test_stream_batch_reports_locked_module() -> None:
     assert any('"status": "locked"' in event for event in nested_events)
 
 
-def test_module_locks_are_independent() -> None:
-    tri_events = stream_batch(load_module_config("tri"))
-    next(tri_events)
+def test_module_locks_are_independent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir = tmp_path / "modules"
+    temp_dir = tmp_path / "temp"
+    locks_dir = tmp_path / "locks"
+    modules_dir.mkdir()
+    temp_dir.mkdir()
+    locks_dir.mkdir()
+    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
+    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
+    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+    module_yaml = (
+        "name: Teste\n"
+        "plugins:\n"
+        "  - id: etapa\n"
+        "    type: command_line\n"
+        "    command: echo concluido\n"
+        "    success_contains: concluido\n"
+    )
+    (modules_dir / "lock_primario.yaml").write_text(module_yaml, encoding="utf-8")
+    (modules_dir / "lock_secundario.yaml").write_text(module_yaml, encoding="utf-8")
+
+    primary_events = stream_batch(load_module_config("lock_primario"))
+    next(primary_events)
 
     try:
-        analitico_events = list(stream_batch(load_module_config("analitico")))
+        secondary_events = list(stream_batch(load_module_config("lock_secundario")))
     finally:
-        tri_events.close()
+        primary_events.close()
 
-    assert any('"status": "success"' in event for event in analitico_events)
-    assert not any('"status": "locked"' in event for event in analitico_events)
+    assert any('"status": "success"' in event for event in secondary_events)
+    assert not any('"status": "locked"' in event for event in secondary_events)
 
 
 def test_stream_batch_persists_last_execution_log() -> None:
-    list(stream_batch(load_module_config("tri")))
+    list(stream_batch(load_module_config("teste_automatizado")))
 
-    records = read_module_log("tri")
+    records = read_module_log("teste_automatizado")
 
     assert records[0]["event"] == "status"
     assert records[0]["run_id"]
@@ -543,7 +669,7 @@ def test_stream_batch_persists_last_execution_log() -> None:
 
 
 def test_stream_batch_emits_plugin_statuses_on_success() -> None:
-    events = [parse_sse_data(event) for event in stream_batch(load_module_config("tri"))]
+    events = [parse_sse_data(event) for event in stream_batch(load_module_config("teste_automatizado"))]
 
     status_event = events[0]
     first_plugin_start = next(
@@ -552,26 +678,26 @@ def test_stream_batch_emits_plugin_statuses_on_success() -> None:
     first_plugin_done = next(
         event
         for event in events
-        if event["event"] == "plugin_done" and event["plugin"] == "preparar_tri"
+        if event["event"] == "plugin_done" and event["plugin"] == "preparar_teste"
     )
     done_event = events[-1]
 
     assert status_event["plugin_statuses"] == {
-        "preparar_tri": "enqueued",
-        "processar_tri": "enqueued",
+        "preparar_teste": "enqueued",
+        "processar_teste": "enqueued",
     }
-    assert first_plugin_start["plugin_statuses"]["preparar_tri"] == "running"
-    assert first_plugin_done["plugin_statuses"]["preparar_tri"] == "success"
+    assert first_plugin_start["plugin_statuses"]["preparar_teste"] == "running"
+    assert first_plugin_done["plugin_statuses"]["preparar_teste"] == "success"
     assert done_event["plugin_statuses"] == {
-        "preparar_tri": "success",
-        "processar_tri": "success",
+        "preparar_teste": "success",
+        "processar_teste": "success",
     }
 
 
 def test_stream_batch_keeps_future_plugins_enqueued_after_failure() -> None:
     module = {
-        "id": "tri",
-        "name": "TRI",
+        "id": "teste_automatizado",
+        "name": "Teste automatizado",
         "variables": {},
         "plugins": [
             {
@@ -613,8 +739,8 @@ def test_stream_batch_keeps_future_plugins_enqueued_after_kill(
 
     monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
     module = {
-        "id": "tri",
-        "name": "TRI",
+        "id": "teste_automatizado",
+        "name": "Teste automatizado",
         "variables": {},
         "plugins": [
             {
@@ -640,29 +766,29 @@ def test_stream_batch_keeps_future_plugins_enqueued_after_kill(
 
 
 def test_active_run_file_persists_plugin_statuses_during_execution() -> None:
-    events = stream_batch(load_module_config("tri"))
+    events = stream_batch(load_module_config("teste_automatizado"))
     first_event = parse_sse_data(next(events))
 
     try:
-        active_snapshot = json.loads(active_run_path("tri").read_text(encoding="utf-8"))
+        active_snapshot = json.loads(active_run_path("teste_automatizado").read_text(encoding="utf-8"))
         second_event = parse_sse_data(next(events))
-        running_snapshot = json.loads(active_run_path("tri").read_text(encoding="utf-8"))
+        running_snapshot = json.loads(active_run_path("teste_automatizado").read_text(encoding="utf-8"))
     finally:
         events.close()
 
     assert first_event["plugin_statuses"] == {
-        "preparar_tri": "enqueued",
-        "processar_tri": "enqueued",
+        "preparar_teste": "enqueued",
+        "processar_teste": "enqueued",
     }
     assert active_snapshot["plugin_statuses"] == first_event["plugin_statuses"]
     assert second_event["event"] == "plugin_start"
-    assert running_snapshot["plugin_statuses"]["preparar_tri"] == "running"
+    assert running_snapshot["plugin_statuses"]["preparar_teste"] == "running"
 
 
 def test_stream_batch_masks_sensitive_values_in_persisted_log() -> None:
     module = {
-        "id": "tri",
-        "name": "TRI",
+        "id": "teste_automatizado",
+        "name": "Teste automatizado",
         "variables": {
             "password": {
                 "type": "sensitive",
@@ -684,7 +810,7 @@ def test_stream_batch_masks_sensitive_values_in_persisted_log() -> None:
     }
 
     list(stream_batch(module))
-    records = read_module_log("tri")
+    records = read_module_log("teste_automatizado")
     serialized_records = json.dumps(records, ensure_ascii=False)
 
     assert "secret-value" not in serialized_records
@@ -692,31 +818,41 @@ def test_stream_batch_masks_sensitive_values_in_persisted_log() -> None:
     assert records[-1]["status"] == "success"
 
 
-def test_module_logs_endpoint_returns_persisted_events() -> None:
-    list(stream_batch(load_module_config("tri")))
+def test_module_logs_endpoint_returns_persisted_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    list(stream_batch(load_module_config("publico")))
 
     client = app.test_client()
-    response = client.get("/api/modules/tri/logs")
+    response = client.get("/api/modules/publico/logs")
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["id"] == "tri"
+    assert payload["id"] == "publico"
     assert payload["run_id"]
     assert payload["latest_sequence"] >= 1
     assert payload["events"][0]["event"] == "status"
 
 
-def test_module_logs_endpoint_resets_when_new_run_replaces_previous_log() -> None:
-    list(stream_batch(load_module_config("tri")))
-    previous_records = read_module_log("tri")
+def test_module_logs_endpoint_resets_when_new_run_replaces_previous_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    list(stream_batch(load_module_config("publico")))
+    previous_records = read_module_log("publico")
     previous_run_id = previous_records[-1]["run_id"]
     previous_sequence = previous_records[-1]["sequence"]
 
-    list(stream_batch(load_module_config("tri")))
+    list(stream_batch(load_module_config("publico")))
 
     client = app.test_client()
     response = client.get(
-        f"/api/modules/tri/logs?run_id={previous_run_id}&since={previous_sequence}"
+        f"/api/modules/publico/logs?run_id={previous_run_id}&since={previous_sequence}"
     )
 
     assert response.status_code == 200
@@ -726,24 +862,34 @@ def test_module_logs_endpoint_resets_when_new_run_replaces_previous_log() -> Non
     assert payload["events"][0]["sequence"] == 1
 
 
-def test_clear_module_logs_when_module_is_not_running() -> None:
-    list(stream_batch(load_module_config("tri")))
+def test_clear_module_logs_when_module_is_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    list(stream_batch(load_module_config("publico")))
 
     client = app.test_client()
-    response = client.post("/api/modules/tri/logs/clear")
+    response = client.post("/api/modules/publico/logs/clear")
 
     assert response.status_code == 200
     assert response.get_json()["cleared"] is True
-    assert read_module_log("tri") == []
+    assert read_module_log("publico") == []
 
 
-def test_clear_module_logs_is_blocked_while_module_is_running() -> None:
-    events = stream_batch(load_module_config("tri"))
+def test_clear_module_logs_is_blocked_while_module_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+    events = stream_batch(load_module_config("publico"))
     next(events)
 
     try:
         client = app.test_client()
-        response = client.post("/api/modules/tri/logs/clear")
+        response = client.post("/api/modules/publico/logs/clear")
     finally:
         events.close()
 
@@ -751,25 +897,36 @@ def test_clear_module_logs_is_blocked_while_module_is_running() -> None:
     assert response.get_json()["cleared"] is False
 
 
-def test_kill_module_returns_conflict_when_module_is_not_running() -> None:
+def test_kill_module_returns_conflict_when_module_is_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
+
     client = app.test_client()
-    response = client.post("/api/modules/tri/kill")
+    response = client.post("/api/modules/publico/kill")
 
     assert response.status_code == 409
     assert response.get_json()["killed"] is False
 
 
-def test_kill_module_calls_active_plugin_kill() -> None:
+def test_kill_module_calls_active_plugin_kill(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(modules_dir)
     plugin = FakeKillablePlugin()
-    create_active_run("tri", "test-run")
-    set_active_plugin("tri", plugin, {"type": "fake"})
+    create_active_run("publico", "test-run")
+    set_active_plugin("publico", plugin, {"type": "fake"})
 
     try:
         client = app.test_client()
-        response = client.post("/api/modules/tri/kill")
-        kill_requested = get_active_kill_requested("tri")
+        response = client.post("/api/modules/publico/kill")
+        kill_requested = get_active_kill_requested("publico")
     finally:
-        remove_active_run("tri")
+        remove_active_run("publico")
 
     assert response.status_code == 200
     assert response.get_json()["killed"] is True
