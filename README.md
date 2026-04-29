@@ -349,9 +349,11 @@ Sem ativar o ambiente virtual, use:
 venv/bin/uwsgi --ini uwsgi.ini
 ```
 
-O arquivo `uwsgi.ini` expõe o Latch em `0.0.0.0:5000` via HTTP direto e usa um único processo com threads habilitadas. Essa configuração é intencional: o scheduler embutido deve existir em apenas um processo, e o `Kill` depende do estado em memória do processo que iniciou o plugin ativo.
+O arquivo `uwsgi.ini` expõe o Latch em `0.0.0.0:5000` via HTTP direto e usa um único processo com threads habilitadas. Essa configuração é intencional: o scheduler embutido deve existir em apenas um processo, e o `Kill` depende do estado em memória do processo que iniciou o plugin ativo. Como as conexões SSE permanecem abertas enquanto a página está ativa, o pool de threads deve ter folga para atender SSEs longos e requisições curtas ao mesmo tempo.
 
 Execuções longas não dependem da conexão do navegador permanecer aberta. O batch roda em uma thread desacoplada, grava status/logs em `temp/` e pode ser acompanhado depois ao reabrir a página do módulo. As conexões SSE enviam heartbeat para evitar encerramento por ociosidade quando um plugin fica muito tempo sem emitir output, e o `uwsgi.ini` usa timeouts de 7 dias para comportar acompanhamentos longos.
+
+Quando uma aba é recarregada, fechada ou perde a conexão durante `/api/events`, o uWSGI pode tentar escrever no socket depois do cliente desconectar. O `uwsgi.ini` mantém `ignore-sigpipe`, `ignore-write-errors` e `disable-write-exception` habilitados para evitar que esse encerramento esperado de SSE polua o log com `Broken pipe` / `OSError: write error`.
 
 Para atividades de vários dias, mantenha o processo uWSGI estável: não use reinícios automáticos por tempo, `max-requests`, `harakiri` ou deploy com múltiplos processos enquanto uma execução estiver ativa. Se o processo uWSGI for encerrado ou recarregado, o Latch perde o estado em memória necessário para monitorar e interromper o plugin ativo.
 

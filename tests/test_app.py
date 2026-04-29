@@ -73,11 +73,14 @@ def test_uwsgi_config_keeps_single_process_threaded_runtime() -> None:
     uwsgi_config = config["uwsgi"]
     assert uwsgi_config["module"] == "app:app"
     assert uwsgi_config.getint("processes") == 1
-    assert uwsgi_config.getint("threads") >= 4
+    assert uwsgi_config.getint("threads") >= 16
     assert uwsgi_config.getboolean("enable-threads") is True
     assert uwsgi_config.getboolean("lazy-apps") is True
     assert uwsgi_config.getint("http-timeout") >= 604800
     assert uwsgi_config.getint("socket-timeout") >= 604800
+    assert uwsgi_config.getboolean("ignore-sigpipe") is True
+    assert uwsgi_config.getboolean("ignore-write-errors") is True
+    assert uwsgi_config.getboolean("disable-write-exception") is True
 
 
 class FakeKilledPlugin(BasePlugin):

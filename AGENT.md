@@ -369,11 +369,12 @@ Estados da lista de etapas:
 - O arquivo `temp/active_<module>.json` é observabilidade/metadados, não a fonte principal para chamar `kill()`.
 - Em todos os caminhos de saída, o app deve liberar lock, remover execução ativa e limpar metadados ativos.
 - O scheduler embutido pressupõe um único processo responsável por agenda. Em deploy multi-worker, apenas um processo deve manter o scheduler habilitado.
-- O deploy de produção suportado usa `uwsgi.ini` com `processes = 1`, `threads >= 4`, `enable-threads = true` e `lazy-apps = true`.
+- O deploy de produção suportado usa `uwsgi.ini` com `processes = 1`, `threads >= 16`, `enable-threads = true` e `lazy-apps = true`.
 - Não aumente `processes` sem externalizar ou redesenhar o scheduler e o estado ativo usado por `Kill`; múltiplos workers podem criar múltiplos schedulers e deixar o plugin ativo inacessível ao endpoint de interrupção.
 - `lazy-apps = true` evita carregar a aplicação no master uWSGI antes do fork, preservando as threads internas iniciadas no import e durante a execução.
 - Execuções longas podem durar dias desde que o processo uWSGI continue vivo; não configure `harakiri`, `max-requests` ou reinícios automáticos por tempo para este modelo.
 - A conexão SSE não é a fonte de vida da execução: batches manuais e agendados rodam desacoplados e podem ser acompanhados depois por status/logs persistidos. SSEs devem emitir heartbeat para sobreviver a períodos sem output.
+- O `uwsgi.ini` deve manter `ignore-sigpipe`, `ignore-write-errors` e `disable-write-exception` habilitados para suprimir `Broken pipe` / `OSError: write error` quando o navegador ou proxy fecha uma conexão SSE antes do próximo heartbeat.
 
 ## Testes Esperados
 
