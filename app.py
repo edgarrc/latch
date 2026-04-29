@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import queue
 import re
 import secrets
@@ -30,6 +31,11 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from yaml.nodes import MappingNode, Node, ScalarNode
+
+try:
+    from croniter import croniter
+except ImportError:  # pragma: no cover - production installs requirements.txt.
+    croniter = None
 
 from plugins.base import (
     BasePlugin,
@@ -65,6 +71,10 @@ ACTIVE_MODULES: set[str] = set()
 ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
 ACTIVE_MODULES_LOCK = threading.Lock()
 GENERATED_TEMP_PATTERNS = ("temp_*.jsonl", "active_*.json")
+RUN_TRIGGER_MANUAL = "manual"
+RUN_TRIGGER_SCHEDULE = "schedule"
+RUN_TRIGGERS = {RUN_TRIGGER_MANUAL, RUN_TRIGGER_SCHEDULE}
+SCHEDULER_POLL_SECONDS = 15.0
 
 USER_MODULES_DIR.mkdir(parents=True, exist_ok=True)
 SYSTEM_MODULES_DIR.mkdir(parents=True, exist_ok=True)
@@ -154,6 +164,8 @@ def inject_app_metadata() -> dict[str, Any]:
 class ActiveRun:
     module_id: str
     run_id: str
+    trigger: str = RUN_TRIGGER_MANUAL
+    scheduled_for: str | None = None
     sequence: int = 0
     current_plugin: BasePlugin | None = None
     current_plugin_id: str | None = None
@@ -365,6 +377,135 @@ def signal_app_update(
     )
 
 
+def local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def format_datetime_for_display(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.strftime("%d/%m/%Y %H:%M")
+
+
+def validate_schedule_expression(value: Any, context: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{context} 'schedule' deve ser texto.")
+
+    schedule = value.strip()
+    if not schedule:
+        return ""
+
+    next_schedule_time(schedule, local_now())
+    return schedule
+
+
+def next_schedule_time(expression: str, base_time: datetime) -> datetime:
+    if len(expression.split()) != 5:
+        raise ValueError(f"schedule inválido: {expression!r}.")
+
+    if croniter is not None:
+        try:
+            next_time = croniter(expression, base_time).get_next(datetime)
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"schedule inválido: {expression!r}.") from exc
+        if next_time.tzinfo is None and base_time.tzinfo is not None:
+            next_time = next_time.replace(tzinfo=base_time.tzinfo)
+        return next_time
+
+    return next_schedule_time_fallback(expression, base_time)
+
+
+def next_schedule_time_fallback(expression: str, base_time: datetime) -> datetime:
+    fields = expression.split()
+    if len(fields) != 5:
+        raise ValueError(f"schedule inválido: {expression!r}.")
+
+    try:
+        minutes, _minute_wildcard = parse_cron_field(fields[0], 0, 59)
+        hours, _hour_wildcard = parse_cron_field(fields[1], 0, 23)
+        days, day_wildcard = parse_cron_field(fields[2], 1, 31)
+        months, _month_wildcard = parse_cron_field(fields[3], 1, 12)
+        weekdays, weekday_wildcard = parse_cron_field(fields[4], 0, 7)
+    except ValueError as exc:
+        raise ValueError(f"schedule inválido: {expression!r}.") from exc
+    if 7 in weekdays:
+        weekdays.add(0)
+        weekdays.discard(7)
+
+    candidate = base_time.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    deadline = candidate + timedelta(days=366)
+    while candidate <= deadline:
+        cron_weekday = (candidate.weekday() + 1) % 7
+        day_matches = candidate.day in days
+        weekday_matches = cron_weekday in weekdays
+        if not day_wildcard and not weekday_wildcard:
+            calendar_matches = day_matches or weekday_matches
+        else:
+            calendar_matches = day_matches and weekday_matches
+
+        if (
+            candidate.minute in minutes
+            and candidate.hour in hours
+            and candidate.month in months
+            and calendar_matches
+        ):
+            return candidate
+        candidate += timedelta(minutes=1)
+
+    raise ValueError(f"schedule inválido: {expression!r}.")
+
+
+def parse_cron_field(field: str, minimum: int, maximum: int) -> tuple[set[int], bool]:
+    if not field:
+        raise ValueError("Campo cron vazio.")
+
+    values: set[int] = set()
+    wildcard = False
+    for raw_part in field.split(","):
+        part = raw_part.strip()
+        if not part:
+            raise ValueError("Campo cron vazio.")
+
+        range_part = part
+        step = 1
+        if "/" in part:
+            range_part, step_part = part.split("/", 1)
+            if not step_part.isdigit():
+                raise ValueError("Passo cron inválido.")
+            step = int(step_part)
+            if step <= 0:
+                raise ValueError("Passo cron inválido.")
+
+        if range_part == "*":
+            start = minimum
+            end = maximum
+            wildcard = wildcard or step == 1
+        elif "-" in range_part:
+            start_part, end_part = range_part.split("-", 1)
+            if not start_part.isdigit() or not end_part.isdigit():
+                raise ValueError("Intervalo cron inválido.")
+            start = int(start_part)
+            end = int(end_part)
+        elif range_part.isdigit():
+            start = end = int(range_part)
+        else:
+            raise ValueError("Campo cron inválido.")
+
+        if start < minimum or end > maximum or start > end:
+            raise ValueError("Valor cron fora do intervalo permitido.")
+        values.update(range(start, end + 1, step))
+
+    return values, wildcard
+
+
 def password_hash_for_user(settings: dict[str, Any], username: str) -> str | None:
     if username not in KNOWN_USERNAMES:
         return None
@@ -438,10 +579,13 @@ def safe_next_url(next_url: str | None) -> str:
 @app.before_request
 def require_authentication() -> Response | tuple[Response, int] | None:
     if app.config.get("AUTH_DISABLED"):
+        ensure_scheduler_started()
         return None
 
     if request.endpoint == "static":
         return None
+
+    ensure_scheduler_started()
 
     settings = load_settings()
     setup_endpoint = request.endpoint == "setup"
@@ -587,7 +731,7 @@ def modules_status() -> Response:
     return jsonify(
         {
             "modules": {
-                module_name: {"running": is_module_running(module_name)}
+                module_name: module_runtime_status(load_module_config(module_name))
                 for module_name in discover_module_names()
             }
         }
@@ -597,7 +741,8 @@ def modules_status() -> Response:
 @app.get("/api/modules/<module_name>/status")
 def module_status(module_name: str) -> Response:
     ensure_public_module_exists(module_name)
-    return jsonify({"id": module_name, "running": is_module_running(module_name)})
+    module = load_module_config(module_name)
+    return jsonify({"id": module_name, **module_runtime_status(module)})
 
 
 @app.get("/api/events")
@@ -698,6 +843,7 @@ def create_module_config() -> Response:
         resources=["config", "status"],
         reason="module_created",
     )
+    SCHEDULER.wake()
     return jsonify(
         {
             "saved": True,
@@ -743,6 +889,7 @@ def update_module_config(module_name: str) -> Response:
         resources=["config", "status"],
         reason="module_updated",
     )
+    SCHEDULER.wake()
     return jsonify(
         {
             "saved": True,
@@ -776,12 +923,14 @@ def delete_module_config(module_name: str) -> Response:
         resources=["config", "status"],
         reason="module_deleted",
     )
+    SCHEDULER.wake()
     return jsonify({"deleted": True, "id": module_name, "message": "Módulo excluído."})
 
 
 @app.get("/api/modules/<module_name>/logs")
 def module_logs(module_name: str) -> Response:
     ensure_public_module_exists(module_name)
+    module = load_module_config(module_name)
 
     since = request.args.get("since", default=0, type=int) or 0
     current_run_id = request.args.get("run_id", default="", type=str)
@@ -803,7 +952,7 @@ def module_logs(module_name: str) -> Response:
     return jsonify(
         {
             "id": module_name,
-            "running": is_module_running(module_name),
+            **module_runtime_status(module),
             "run_id": latest_run_id,
             "latest_sequence": latest_sequence,
             "reset": reset,
@@ -900,7 +1049,7 @@ def run_module(module_name: str) -> Response:
     ensure_public_module_exists(module_name)
     module = load_module_config(module_name)
     return Response(
-        stream_with_context(stream_detached_batch(module)),
+        stream_with_context(stream_detached_batch(module, trigger=RUN_TRIGGER_MANUAL)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1077,6 +1226,7 @@ def validate_module_config(
         raise ValueError(f"Module {module_name!r} must define a non-empty name.")
 
     description = validate_optional_text(config, "description", f"Module {module_name!r}")
+    schedule = validate_schedule_expression(config.get("schedule"), f"Module {module_name!r}")
     plugins = config.get("plugins")
     if not isinstance(plugins, list) or not plugins:
         raise ValueError(f"Module {module_name!r} must define a non-empty plugins list.")
@@ -1110,6 +1260,7 @@ def validate_module_config(
         "id": module_name,
         "name": name,
         "description": description,
+        "schedule": schedule,
         "variables": variables,
         "plugins": validated_plugins,
     }
@@ -1121,6 +1272,8 @@ def dump_module_yaml(module: dict[str, Any]) -> str:
     }
     if module.get("description"):
         config["description"] = module["description"]
+    if module.get("schedule"):
+        config["schedule"] = module["schedule"]
     if module.get("variables"):
         config["variables"] = module["variables"]
     config["plugins"] = module["plugins"]
@@ -1175,8 +1328,43 @@ def load_system_module_config(module_name: str) -> dict[str, Any]:
 
 def module_with_status(module_name: str) -> dict[str, Any]:
     module = load_module_config(module_name)
-    module["running"] = is_module_running(module_name)
+    module.update(module_runtime_status(module))
     return module
+
+
+def module_runtime_status(module: dict[str, Any]) -> dict[str, Any]:
+    module_name = module["id"]
+    running = is_module_running(module_name)
+    active_run = get_active_run(module_name)
+    next_run = ""
+    schedule = module.get("schedule") or ""
+    if schedule:
+        next_run = scheduled_next_run(module_name, schedule)
+
+    return {
+        "running": running,
+        "scheduled": bool(schedule),
+        "schedule": schedule,
+        "next_run": next_run,
+        "next_run_display": format_datetime_for_display(next_run),
+        "trigger": active_run.trigger if active_run is not None else "",
+        "scheduled_for": active_run.scheduled_for if active_run is not None else "",
+        "scheduled_for_display": format_datetime_for_display(
+            active_run.scheduled_for if active_run is not None else None
+        ),
+    }
+
+
+def scheduled_next_run(module_name: str, schedule: str) -> str:
+    scheduler = globals().get("SCHEDULER")
+    if scheduler is not None:
+        next_run = scheduler.next_run_for(module_name)
+        if next_run:
+            return next_run
+    try:
+        return next_schedule_time(schedule, local_now()).isoformat()
+    except ValueError:
+        return ""
 
 
 def is_module_running(module_name: str) -> bool:
@@ -1205,7 +1393,12 @@ def create_active_run(
     module_name: str,
     run_id: str,
     plugins: list[dict[str, Any]] | None = None,
+    *,
+    trigger: str = RUN_TRIGGER_MANUAL,
+    scheduled_for: str | None = None,
 ) -> ActiveRun:
+    if trigger not in RUN_TRIGGERS:
+        raise ValueError(f"Trigger de execução inválido: {trigger!r}.")
     plugin_statuses = {
         plugin["id"]: "enqueued"
         for plugin in plugins or []
@@ -1214,6 +1407,8 @@ def create_active_run(
     active_run = ActiveRun(
         module_id=module_name,
         run_id=run_id,
+        trigger=trigger,
+        scheduled_for=scheduled_for,
         plugin_statuses=plugin_statuses,
     )
     with ACTIVE_MODULES_LOCK:
@@ -1318,7 +1513,17 @@ def append_active_log(module_name: str, event: str, payload: dict[str, Any]) -> 
     with ACTIVE_MODULES_LOCK:
         active_run = ACTIVE_RUNS[module_name]
         active_run.sequence += 1
-        record = build_log_record(active_run.run_id, active_run.sequence, event, payload)
+        payload_with_context = {
+            "trigger": active_run.trigger,
+            "scheduled_for": active_run.scheduled_for,
+            **payload,
+        }
+        record = build_log_record(
+            active_run.run_id,
+            active_run.sequence,
+            event,
+            payload_with_context,
+        )
         snapshot = serialize_active_run(active_run)
     append_module_log(module_name, record)
     write_active_run_snapshot(module_name, snapshot)
@@ -1340,6 +1545,8 @@ def serialize_active_run(active_run: ActiveRun) -> dict[str, Any]:
     return {
         "module_id": active_run.module_id,
         "run_id": active_run.run_id,
+        "trigger": active_run.trigger,
+        "scheduled_for": active_run.scheduled_for,
         "sequence": active_run.sequence,
         "current_plugin_id": active_run.current_plugin_id,
         "current_plugin_type": active_run.current_plugin_type,
@@ -1410,7 +1617,12 @@ def read_module_log(module_name: str) -> list[dict[str, Any]]:
     return events
 
 
-def stream_batch(module: dict[str, Any]) -> Iterator[str]:
+def stream_batch(
+    module: dict[str, Any],
+    *,
+    trigger: str = RUN_TRIGGER_MANUAL,
+    scheduled_for: str | None = None,
+) -> Iterator[str]:
     module_id = module["id"]
     lock_path = LOCKS_DIR / f"{module_id}.lock"
     lock = FileLock(lock_path)
@@ -1423,6 +1635,8 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
             {
                 "status": "locked",
                 "level": "error",
+                "trigger": trigger,
+                "scheduled_for": scheduled_for,
                 "message": f"O módulo {module['name']} já está em execução.",
             },
         )
@@ -1430,7 +1644,13 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
 
     run_id = uuid4().hex
     clear_module_log(module_id)
-    active_run = create_active_run(module_id, run_id, module["plugins"])
+    active_run = create_active_run(
+        module_id,
+        run_id,
+        module["plugins"],
+        trigger=trigger,
+        scheduled_for=scheduled_for,
+    )
 
     def emit(event: str, payload: dict[str, Any]) -> str:
         record = append_active_log(module_id, event, payload)
@@ -1441,7 +1661,11 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
             "status",
             {
                 "level": "info",
-                "message": f"Iniciando batch {module['name']}.",
+                "message": (
+                    f"Iniciando batch agendado {module['name']}."
+                    if trigger == RUN_TRIGGER_SCHEDULE
+                    else f"Iniciando batch {module['name']}."
+                ),
                 "plugin_statuses": dict(active_run.plugin_statuses),
             },
         )
@@ -1591,27 +1815,55 @@ def stream_batch(module: dict[str, Any]) -> Iterator[str]:
 _BATCH_STREAM_DONE = object()
 
 
-def stream_detached_batch(module: dict[str, Any]) -> Iterator[str]:
-    event_queue: queue.Queue[str | object] = queue.Queue()
-    client_closed = threading.Event()
-
+def start_detached_batch(
+    module: dict[str, Any],
+    *,
+    trigger: str = RUN_TRIGGER_MANUAL,
+    scheduled_for: str | None = None,
+    event_queue: queue.Queue[str | object] | None = None,
+    client_closed: threading.Event | None = None,
+) -> threading.Thread:
     def enqueue(event: str | object) -> None:
-        if not client_closed.is_set():
+        if event_queue is None:
+            return
+        if client_closed is None or not client_closed.is_set():
             event_queue.put(event)
 
     def worker() -> None:
         try:
-            for event in stream_batch(module):
+            for event in stream_batch(
+                module,
+                trigger=trigger,
+                scheduled_for=scheduled_for,
+            ):
                 enqueue(event)
         finally:
             enqueue(_BATCH_STREAM_DONE)
 
     thread = threading.Thread(
         target=worker,
-        name=f"batch-runner-{module['id']}",
+        name=f"batch-runner-{trigger}-{module['id']}",
         daemon=True,
     )
     thread.start()
+    return thread
+
+
+def stream_detached_batch(
+    module: dict[str, Any],
+    *,
+    trigger: str = RUN_TRIGGER_MANUAL,
+    scheduled_for: str | None = None,
+) -> Iterator[str]:
+    event_queue: queue.Queue[str | object] = queue.Queue()
+    client_closed = threading.Event()
+    start_detached_batch(
+        module,
+        trigger=trigger,
+        scheduled_for=scheduled_for,
+        event_queue=event_queue,
+        client_closed=client_closed,
+    )
 
     try:
         while True:
@@ -1621,6 +1873,150 @@ def stream_detached_batch(module: dict[str, Any]) -> Iterator[str]:
             yield str(event)
     finally:
         client_closed.set()
+
+
+class ModuleScheduler:
+    def __init__(self, poll_seconds: float = SCHEDULER_POLL_SECONDS) -> None:
+        self._poll_seconds = poll_seconds
+        self._lock = threading.Lock()
+        self._wake_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._next_runs: dict[str, datetime] = {}
+        self._schedules: dict[str, str] = {}
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(
+                target=self._run,
+                name="module-scheduler",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def wake(self) -> None:
+        self._wake_event.set()
+
+    def next_run_for(self, module_name: str) -> str:
+        with self._lock:
+            next_run = self._next_runs.get(module_name)
+        return next_run.isoformat() if next_run is not None else ""
+
+    def refresh(self, now: datetime | None = None) -> None:
+        self._refresh_schedules(now or local_now())
+
+    def run_due_once(self, now: datetime | None = None) -> list[str]:
+        return self._run_due(now or local_now())
+
+    def _run(self) -> None:
+        while True:
+            now = local_now()
+            self._refresh_schedules(now)
+            self._run_due(now)
+            timeout = self._seconds_until_next_run(local_now())
+            self._wake_event.wait(timeout=timeout)
+            self._wake_event.clear()
+
+    def _refresh_schedules(self, now: datetime) -> None:
+        module_names = set(discover_module_names())
+        with self._lock:
+            for module_name in set(self._schedules) - module_names:
+                self._schedules.pop(module_name, None)
+                self._next_runs.pop(module_name, None)
+
+        for module_name in sorted(module_names):
+            try:
+                module = load_module_config(module_name)
+            except Exception:
+                with self._lock:
+                    self._schedules.pop(module_name, None)
+                    self._next_runs.pop(module_name, None)
+                continue
+
+            schedule = module.get("schedule") or ""
+            if not schedule:
+                with self._lock:
+                    self._schedules.pop(module_name, None)
+                    self._next_runs.pop(module_name, None)
+                continue
+
+            with self._lock:
+                current_schedule = self._schedules.get(module_name)
+                current_next_run = self._next_runs.get(module_name)
+            if current_schedule == schedule and current_next_run is not None:
+                continue
+
+            try:
+                next_run = next_schedule_time(schedule, now)
+            except ValueError:
+                continue
+            with self._lock:
+                self._schedules[module_name] = schedule
+                self._next_runs[module_name] = next_run
+
+    def _run_due(self, now: datetime) -> list[str]:
+        due: list[tuple[str, datetime, str]] = []
+        with self._lock:
+            for module_name, next_run in self._next_runs.items():
+                schedule = self._schedules.get(module_name)
+                if schedule and next_run <= now:
+                    due.append((module_name, next_run, schedule))
+
+        triggered: list[str] = []
+        for module_name, scheduled_for, schedule in due:
+            try:
+                next_run = next_schedule_time(schedule, max(now, scheduled_for))
+            except ValueError:
+                with self._lock:
+                    self._schedules.pop(module_name, None)
+                    self._next_runs.pop(module_name, None)
+                continue
+
+            with self._lock:
+                if self._schedules.get(module_name) == schedule:
+                    self._next_runs[module_name] = next_run
+
+            try:
+                module = load_module_config(module_name)
+            except Exception:
+                continue
+            if not module.get("schedule"):
+                continue
+            if is_module_running(module_name):
+                continue
+
+            start_detached_batch(
+                module,
+                trigger=RUN_TRIGGER_SCHEDULE,
+                scheduled_for=scheduled_for.isoformat(),
+            )
+            triggered.append(module_name)
+
+        return triggered
+
+    def _seconds_until_next_run(self, now: datetime) -> float:
+        with self._lock:
+            next_runs = list(self._next_runs.values())
+        if not next_runs:
+            return self._poll_seconds
+        seconds = min((next_run - now).total_seconds() for next_run in next_runs)
+        return max(0.1, min(self._poll_seconds, seconds))
+
+
+SCHEDULER = ModuleScheduler()
+
+
+def ensure_scheduler_started() -> None:
+    if app.config.get("SCHEDULER_DISABLED"):
+        return
+    if os.environ.get("LATCH_SCHEDULER_DISABLED") == "1":
+        return
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    if not app.config.get("AUTH_DISABLED") and load_settings() is None:
+        return
+    SCHEDULER.start()
 
 
 def create_plugin(

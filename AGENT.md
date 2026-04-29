@@ -41,7 +41,9 @@ Módulos de usuário:
 Configuração de módulo:
 
 - Cada módulo de usuário possui um YAML em `modules/user/<module>.yaml`.
-- O YAML define `name`, opcionalmente `description`, opcionalmente `variables`, e a lista ordenada `plugins`.
+- O YAML define `name`, opcionalmente `description`, opcionalmente `schedule`, opcionalmente `variables`, e a lista ordenada `plugins`.
+- `schedule` é uma string opcional no formato cron clássico de 5 campos, por exemplo `"0 * * * *"` para executar de hora em hora.
+- `schedule` vazio, ausente ou `null` deixa o módulo sem agendamento.
 - Cada plugin pode declarar `description` textual para explicar a etapa.
 - A ordem da lista é a ordem exata de execução.
 
@@ -50,6 +52,7 @@ Exemplo:
 ```yaml
 name: Analítico
 description: Executa consulta analítica no ClickHouse.
+schedule: "0 * * * *"
 variables:
   database:
     type: string
@@ -89,12 +92,18 @@ Variáveis de módulo:
 - O lock é por módulo, não global.
 - Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
 - Módulos diferentes podem executar em paralelo.
+- O scheduler interno dispara módulos com `schedule` usando o mesmo caminho de execução desacoplada usado pela interface.
+- O cron de `schedule` usa o fuso local do servidor.
+- Se o app estiver desligado ou o módulo estiver ocupado no horário agendado, a execução perdida não é reposta; o próximo horário do cron é calculado normalmente.
+- Módulos agendados podem ser executados manualmente quando estão parados.
 - A página principal lista módulos em formato tabular, com status em coluna própria.
 - O setup inicial cria senhas para os usuários fixos `admin` e `user`.
 - `admin` pode criar, editar, validar e excluir módulos.
 - `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs, solicitar `Kill` e visualizar o YAML/script do módulo em modo somente leitura, com valores `sensitive` mascarados.
 - A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`; para `user`, a ação de script abre a tela do módulo em modo somente leitura.
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
+- A página do módulo informa quando o módulo possui `schedule` e mostra a próxima execução calculada quando disponível.
+- Durante uma execução agendada em andamento, a página deve funcionar como uma execução manual reaberta: console, status por etapa, `Kill`, bloqueio de `Executar` e bloqueio de `Clear` usam o mesmo estado persistido.
 - A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão para `admin`; para `user`, a mesma tela funciona apenas como visualização readonly do YAML.
 - `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos e sem normalizar/reformatar o YAML enviado.
 - `Save` valida novamente e persiste o YAML bruto enviado em `modules/user/<module>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados pelo usuário. É bloqueado enquanto o módulo está em execução.
@@ -300,7 +309,7 @@ Persistência temporária:
 - Logs da última execução ficam em `temp/temp_<module>.jsonl`.
 - Cada linha é um evento JSON com `run_id`, `sequence`, `event`, `created_at`, `level`, `message`, status opcionais por etapa em `plugin_statuses` e metadados opcionais.
 - Execução ativa fica em `temp/active_<module>.json`.
-- A execução ativa inclui `plugin_statuses`, além de plugin atual, kill flag e metadados como PID/PGID.
+- A execução ativa inclui `plugin_statuses`, origem da execução (`manual` ou `schedule`), horário agendado opcional, plugin atual, kill flag e metadados como PID/PGID.
 - Arquivos em `temp/*.jsonl` e `temp/active_*.json` não devem ser versionados.
 - Ao iniciar a aplicação, os artefatos gerados por módulos em `temp/temp_*.jsonl` e `temp/active_*.json` são removidos.
 
@@ -355,6 +364,7 @@ Estados da lista de etapas:
 - O estado em memória (`ACTIVE_RUNS`) complementa o lock para acessar o plugin ativo e permitir kill.
 - O arquivo `temp/active_<module>.json` é observabilidade/metadados, não a fonte principal para chamar `kill()`.
 - Em todos os caminhos de saída, o app deve liberar lock, remover execução ativa e limpar metadados ativos.
+- O scheduler embutido pressupõe um único processo responsável por agenda. Em deploy multi-worker, apenas um processo deve manter o scheduler habilitado.
 
 ## Testes Esperados
 

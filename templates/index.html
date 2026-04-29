@@ -39,10 +39,16 @@
                   {% if module.description %}
                     <div class="small text-secondary mt-1">{{ module.description }}</div>
                   {% endif %}
+                  {% if module.scheduled %}
+                    <div class="schedule-note mt-1">
+                      <span class="badge text-bg-primary">Agendado</span>
+                      <span class="schedule-code">{{ module.schedule }}</span>
+                    </div>
+                  {% endif %}
                 </td>
                 <td class="text-center">
                   <span class="badge module-status {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                    {% if module.running %}Executando{% else %}Pronto{% endif %}
+                    {% if module.running and module.trigger == "schedule" %}Executando agendado{% elif module.running %}Executando{% else %}Pronto{% endif %}
                   </span>
                 </td>
                 <td class="text-center fw-semibold">{{ module.plugins | length }}</td>
@@ -77,14 +83,16 @@
         ])
       );
 
-      function setModuleStatus(moduleId, running) {
+      function setModuleStatus(moduleId, status) {
         const badge = statusBadges.get(moduleId);
         if (!badge) {
           return;
         }
 
+        const running = Boolean(status.running);
+        const scheduledRun = running && status.trigger === "schedule";
         badge.className = `badge module-status ${running ? "text-bg-primary" : "text-bg-secondary"}`;
-        badge.textContent = running ? "Executando" : "Pronto";
+        badge.textContent = scheduledRun ? "Executando agendado" : (running ? "Executando" : "Pronto");
       }
 
       function redirectToLogin() {
@@ -105,7 +113,7 @@
 
           const payload = await response.json();
           for (const [moduleId, status] of Object.entries(payload.modules)) {
-            setModuleStatus(moduleId, status.running);
+            setModuleStatus(moduleId, status);
           }
         } catch (_error) {
           return;

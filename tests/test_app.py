@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 import pytest
@@ -23,6 +24,8 @@ from app import (
     read_module_log,
     remove_active_run,
     set_active_plugin,
+    ModuleScheduler,
+    RUN_TRIGGER_SCHEDULE,
     stream_batch,
     stream_detached_batch,
 )
@@ -32,13 +35,19 @@ from plugins.base import BasePlugin, PluginEvent, PluginKilledError
 @pytest.fixture(autouse=True)
 def disable_auth_for_existing_tests() -> Iterator[None]:
     previous_auth_disabled = app.config.get("AUTH_DISABLED")
+    previous_scheduler_disabled = app.config.get("SCHEDULER_DISABLED")
     previous_secret_key = app.secret_key
     app.config["AUTH_DISABLED"] = True
+    app.config["SCHEDULER_DISABLED"] = True
     yield
     if previous_auth_disabled is None:
         app.config.pop("AUTH_DISABLED", None)
     else:
         app.config["AUTH_DISABLED"] = previous_auth_disabled
+    if previous_scheduler_disabled is None:
+        app.config.pop("SCHEDULER_DISABLED", None)
+    else:
+        app.config["SCHEDULER_DISABLED"] = previous_scheduler_disabled
     app.secret_key = previous_secret_key
 
 
@@ -453,6 +462,31 @@ def test_load_module_config_reads_configured_plugins() -> None:
     assert module["plugins"][0]["description"]
 
 
+def test_load_module_config_returns_normalized_schedule_without_rewriting_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    content = (
+        "name: Agendado\n"
+        "schedule: \"  0 * * * *  \"\n"
+        "plugins:\n"
+        "  - id: etapa\n"
+        "    type: command_line\n"
+        "    command: echo ok\n"
+    )
+    module_path = user_modules_dir / "agendado.yaml"
+    module_path.write_text(content, encoding="utf-8")
+
+    module = load_module_config("agendado")
+
+    assert module["schedule"] == "0 * * * *"
+    assert module_path.read_text(encoding="utf-8") == content
+
+
 def test_clear_generated_temp_files_removes_module_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -525,6 +559,30 @@ def test_module_page_renders_plugin_status_column(
     assert b"Descri" in response.data
     assert b"data-plugin-id=\"preparar_publico\"" in response.data
     assert "Não iniciado".encode() in response.data
+
+
+def test_module_page_renders_schedule_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+    module_path = user_modules_dir / "publico.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            "description: Modulo publico temporario.\nschedule: \"0 * * * *\"\n",
+        ),
+        encoding="utf-8",
+    )
+
+    client = app.test_client()
+    response = client.get("/publico")
+
+    assert response.status_code == 200
+    assert b"Agendado" in response.data
+    assert b"0 * * * *" in response.data
+    assert "Próxima execução".encode() in response.data
 
 
 def test_index_renders_add_and_edit_actions(
@@ -680,6 +738,35 @@ def test_user_can_access_operational_module_surfaces(
     assert [response.status_code for response in responses] == [200, 200, 200, 200, 200, 409]
 
 
+def test_status_endpoints_include_schedule_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir)
+    module_path = user_modules_dir / "publico.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            "description: Modulo publico temporario.\nschedule: \"0 * * * *\"\n",
+        ),
+        encoding="utf-8",
+    )
+
+    client = app.test_client()
+    status_response = client.get("/api/modules/publico/status")
+    all_status_response = client.get("/api/modules/status")
+
+    assert status_response.status_code == 200
+    assert status_response.get_json()["scheduled"] is True
+    assert status_response.get_json()["schedule"] == "0 * * * *"
+    assert status_response.get_json()["next_run"]
+    assert all_status_response.get_json()["modules"]["publico"]["scheduled"] is True
+
+
 def test_authenticated_pages_render_latch_branding_and_footer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -776,6 +863,49 @@ def test_validate_module_endpoint_accepts_client_plugins() -> None:
 
     assert response.status_code == 200
     assert response.get_json()["valid"] is True
+
+
+def test_validate_module_endpoint_accepts_schedule() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "schedule: \"0 * * * *\"\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["valid"] is True
+
+
+def test_validate_module_endpoint_rejects_invalid_schedule() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "schedule: \"0 * * * * *\"\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["valid"] is False
+    assert "schedule inválido" in response.get_json()["message"]
 
 
 def test_validate_module_endpoint_returns_original_yaml() -> None:
@@ -1067,6 +1197,25 @@ def test_stream_batch_persists_last_execution_log() -> None:
     assert records[-1]["status"] == "success"
 
 
+def test_stream_batch_persists_schedule_trigger_metadata() -> None:
+    scheduled_for = "2026-01-01T12:00:00+00:00"
+    list(
+        stream_batch(
+            load_system_module_config("teste_automatizado"),
+            trigger=RUN_TRIGGER_SCHEDULE,
+            scheduled_for=scheduled_for,
+        )
+    )
+
+    records = read_module_log("teste_automatizado")
+    active_events = [record for record in records if record["event"] != "done"]
+
+    assert active_events
+    assert all(record["trigger"] == "schedule" for record in records)
+    assert all(record["scheduled_for"] == scheduled_for for record in records)
+    assert records[0]["message"].startswith("Iniciando batch agendado")
+
+
 def test_stream_batch_emits_plugin_statuses_on_success() -> None:
     events = [parse_sse_data(event) for event in stream_batch(load_system_module_config("teste_automatizado"))]
 
@@ -1143,6 +1292,97 @@ def test_detached_batch_continues_after_sse_client_closes(
         for record in records
     )
     assert not app_module.is_module_running("publico")
+
+
+def test_scheduler_triggers_due_scheduled_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir, "agendado")
+    module_path = user_modules_dir / "agendado.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            "description: Modulo publico temporario.\nschedule: \"* * * * *\"\n",
+        ),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_start_detached_batch(
+        module: dict[str, object],
+        *,
+        trigger: str,
+        scheduled_for: str | None = None,
+        event_queue: queue.Queue[str | object] | None = None,
+        client_closed: threading.Event | None = None,
+    ) -> threading.Thread:
+        calls.append(
+            {
+                "module": module["id"],
+                "trigger": trigger,
+                "scheduled_for": scheduled_for,
+            }
+        )
+        thread = threading.Thread(target=lambda: None)
+        return thread
+
+    monkeypatch.setattr(app_module, "start_detached_batch", fake_start_detached_batch)
+    scheduler = ModuleScheduler()
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    scheduler.refresh(now)
+    triggered = scheduler.run_due_once(now + timedelta(minutes=1))
+
+    assert triggered == ["agendado"]
+    assert calls == [
+        {
+            "module": "agendado",
+            "trigger": "schedule",
+            "scheduled_for": "2026-01-01T12:01:00+00:00",
+        }
+    ]
+
+
+def test_scheduler_skips_due_module_when_it_is_already_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir, "agendado")
+    module_path = user_modules_dir / "agendado.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "description: Modulo publico temporario.\n",
+            "description: Modulo publico temporario.\nschedule: \"* * * * *\"\n",
+        ),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        app_module,
+        "start_detached_batch",
+        lambda *args, **kwargs: calls.append({"args": args, "kwargs": kwargs}),
+    )
+    scheduler = ModuleScheduler()
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    scheduler.refresh(now)
+    create_active_run("agendado", "test-run")
+
+    try:
+        triggered = scheduler.run_due_once(now + timedelta(minutes=1))
+    finally:
+        remove_active_run("agendado")
+
+    assert triggered == []
+    assert calls == []
 
 
 def test_stream_batch_keeps_future_plugins_enqueued_after_failure() -> None:

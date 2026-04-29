@@ -27,6 +27,7 @@ Casos de uso típicos:
 - Criação e edição de módulos pela interface web.
 - Validação de YAML antes de salvar.
 - Variáveis por módulo com placeholders em comandos.
+- Agendamento opcional por módulo usando cron de 5 campos.
 - Suporte a variáveis de ambiente e valores sensíveis mascarados.
 - Execução sequencial de plugins.
 - Plugins `command_line`, `clickhouse_client` e `redis_client` para executar comandos no host.
@@ -105,6 +106,7 @@ Exemplo:
 ```yaml
 name: Analítico
 description: Executa as etapas analíticas do batch.
+schedule: "0 * * * *"
 plugins:
   - id: preparar_analitico
     type: command_line
@@ -122,6 +124,10 @@ plugins:
 ```
 
 Use `description` no módulo para explicar o objetivo geral e em cada plugin para explicar o que a etapa faz.
+
+Use `schedule` opcionalmente para executar o módulo de forma automática. O valor deve ser uma string cron clássica de 5 campos, como `"0 * * * *"` para executar de hora em hora. O cron é interpretado no fuso local do servidor. Se o Latch estiver desligado ou o módulo ainda estiver rodando no horário agendado, a execução perdida não é reposta; o scheduler aguarda o próximo horário.
+
+Módulos agendados continuam permitindo execução manual quando estão parados. Durante uma execução agendada, a página do módulo usa os mesmos controles de uma execução manual: `Executar` e `Clear` ficam bloqueados, `Kill` continua disponível e o console pode ser reaberto acompanhando os logs persistidos.
 
 ### Variáveis de Módulo
 

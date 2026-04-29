@@ -16,11 +16,20 @@
           <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
             <h1 class="page-title">{{ module.name }}</h1>
             <span id="statusBadge" class="badge status-badge {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-              {% if module.running %}Executando{% else %}Pronto{% endif %}
+              {% if module.running and module.trigger == "schedule" %}Executando agendado{% elif module.running %}Executando{% else %}Pronto{% endif %}
             </span>
           </div>
           {% if module.description %}
             <p class="page-description">{{ module.description }}</p>
+          {% endif %}
+          {% if module.scheduled %}
+            <div class="schedule-note mt-2">
+              <span class="badge text-bg-primary">Agendado</span>
+              <span class="schedule-code">{{ module.schedule }}</span>
+              {% if module.next_run_display %}
+                <span class="text-secondary">Próxima execução: {{ module.next_run_display }}</span>
+              {% endif %}
+            </div>
           {% endif %}
         </div>
         <div class="d-flex gap-2">
@@ -106,6 +115,7 @@
       let waitingForNewRun = false;
       let lastTerminalStatus = "";
       let killRequested = false;
+      let activeRunTrigger = {{ module.trigger | tojson }};
 
       function setPluginStatus(pluginId, status) {
         const badge = pluginStatusBadges.get(pluginId);
@@ -156,6 +166,10 @@
       }
 
       function appendLog(payload) {
+        if (payload.trigger) {
+          activeRunTrigger = payload.trigger;
+        }
+
         if (payload.run_id && Number.isInteger(payload.sequence)) {
           const key = `${payload.run_id}:${payload.sequence}`;
           if (renderedLogKeys.has(key)) {
@@ -190,7 +204,7 @@
       }
 
       function setStatus(text, className) {
-        statusBadge.className = `badge ${className}`;
+        statusBadge.className = `badge status-badge ${className}`;
         statusBadge.textContent = text;
       }
 
@@ -206,7 +220,8 @@
         return false;
       }
 
-      function setRunningState(running) {
+      function setRunningState(running, trigger = activeRunTrigger) {
+        activeRunTrigger = trigger || "";
         if (running) {
           runButton.disabled = true;
           clearButton.disabled = true;
@@ -214,11 +229,14 @@
           runButton.textContent = "Executando...";
           if (killRequested) {
             setStatus("Interrompendo", "text-bg-danger");
+          } else if (activeRunTrigger === "schedule") {
+            setStatus("Executando agendado", "text-bg-primary");
           } else {
             setStatus("Executando", "text-bg-primary");
           }
         } else {
           killRequested = false;
+          activeRunTrigger = "";
           runButton.disabled = false;
           clearButton.disabled = false;
           killButton.disabled = true;
@@ -251,7 +269,7 @@
           }
 
           const payload = await response.json();
-          setRunningState(payload.running);
+          setRunningState(payload.running, payload.trigger || "");
         } catch (_error) {
           return;
         }
@@ -288,6 +306,9 @@
           }
 
           for (const event of payload.events) {
+            if (event.trigger) {
+              activeRunTrigger = event.trigger;
+            }
             appendLog(event);
             if (event.event === "done") {
               lastTerminalStatus = event.status || "";
@@ -295,7 +316,7 @@
           }
 
           lastLogSequence = Math.max(lastLogSequence, payload.latest_sequence || 0);
-          setRunningState(payload.running);
+          setRunningState(payload.running, payload.trigger || activeRunTrigger);
         } catch (_error) {
           return;
         }
@@ -371,6 +392,7 @@
         resetConsole();
         lastTerminalStatus = "";
         killRequested = false;
+        activeRunTrigger = "manual";
         waitingForNewRun = true;
         window.setTimeout(() => {
           waitingForNewRun = false;
@@ -393,6 +415,9 @@
 
         eventSource.addEventListener("done", (event) => {
           const payload = JSON.parse(event.data);
+          if (payload.trigger) {
+            activeRunTrigger = payload.trigger;
+          }
           waitingForNewRun = false;
           appendLog(payload);
           lastTerminalStatus = payload.status || "";
@@ -408,7 +433,7 @@
             setStatus("Concluído", "text-bg-success");
           } else if (payload.status === "locked") {
             resetConsole();
-            setRunningState(true);
+            setRunningState(true, payload.trigger || activeRunTrigger);
             refreshModuleLogs();
           } else if (payload.status === "killed") {
             runButton.disabled = false;
