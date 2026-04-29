@@ -75,6 +75,7 @@ RUN_TRIGGER_MANUAL = "manual"
 RUN_TRIGGER_SCHEDULE = "schedule"
 RUN_TRIGGERS = {RUN_TRIGGER_MANUAL, RUN_TRIGGER_SCHEDULE}
 SCHEDULER_POLL_SECONDS = 15.0
+SSE_HEARTBEAT_SECONDS = 15.0
 
 USER_MODULES_DIR.mkdir(parents=True, exist_ok=True)
 SYSTEM_MODULES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1883,6 +1884,7 @@ def stream_detached_batch(
     *,
     trigger: str = RUN_TRIGGER_MANUAL,
     scheduled_for: str | None = None,
+    heartbeat_seconds: float = SSE_HEARTBEAT_SECONDS,
 ) -> Iterator[str]:
     event_queue: queue.Queue[str | object] = queue.Queue()
     client_closed = threading.Event()
@@ -1896,7 +1898,11 @@ def stream_detached_batch(
 
     try:
         while True:
-            event = event_queue.get()
+            try:
+                event = event_queue.get(timeout=heartbeat_seconds)
+            except queue.Empty:
+                yield ": heartbeat\n\n"
+                continue
             if event is _BATCH_STREAM_DONE:
                 return
             yield str(event)

@@ -351,6 +351,10 @@ venv/bin/uwsgi --ini uwsgi.ini
 
 O arquivo `uwsgi.ini` expõe o Latch em `0.0.0.0:5000` via HTTP direto e usa um único processo com threads habilitadas. Essa configuração é intencional: o scheduler embutido deve existir em apenas um processo, e o `Kill` depende do estado em memória do processo que iniciou o plugin ativo.
 
+Execuções longas não dependem da conexão do navegador permanecer aberta. O batch roda em uma thread desacoplada, grava status/logs em `temp/` e pode ser acompanhado depois ao reabrir a página do módulo. As conexões SSE enviam heartbeat para evitar encerramento por ociosidade quando um plugin fica muito tempo sem emitir output, e o `uwsgi.ini` usa timeouts de 7 dias para comportar acompanhamentos longos.
+
+Para atividades de vários dias, mantenha o processo uWSGI estável: não use reinícios automáticos por tempo, `max-requests`, `harakiri` ou deploy com múltiplos processos enquanto uma execução estiver ativa. Se o processo uWSGI for encerrado ou recarregado, o Latch perde o estado em memória necessário para monitorar e interromper o plugin ativo.
+
 Para este modelo de deploy, não aumente `processes`. Se precisar colocar Nginx ou outro proxy na frente, mantenha o uWSGI com `processes = 1`, `enable-threads = true` e ajuste apenas a forma de exposição HTTP/socket.
 
 ## Testes

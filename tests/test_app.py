@@ -76,6 +76,8 @@ def test_uwsgi_config_keeps_single_process_threaded_runtime() -> None:
     assert uwsgi_config.getint("threads") >= 4
     assert uwsgi_config.getboolean("enable-threads") is True
     assert uwsgi_config.getboolean("lazy-apps") is True
+    assert uwsgi_config.getint("http-timeout") >= 604800
+    assert uwsgi_config.getint("socket-timeout") >= 604800
 
 
 class FakeKilledPlugin(BasePlugin):
@@ -104,6 +106,26 @@ class BlockingPlugin(BasePlugin):
     def run(self) -> Iterator[PluginEvent]:
         self.started.set()
         yield PluginEvent("info", "plugin bloqueado")
+        self.release.wait(timeout=2)
+        yield PluginEvent("info", "plugin liberado")
+
+    def kill(self) -> None:
+        return
+
+
+class SilentBlockingPlugin(BasePlugin):
+    def __init__(
+        self,
+        plugin_id: str,
+        started: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(plugin_id, {"type": "fake"})
+        self.started = started
+        self.release = release
+
+    def run(self) -> Iterator[PluginEvent]:
+        self.started.set()
         self.release.wait(timeout=2)
         yield PluginEvent("info", "plugin liberado")
 
@@ -1402,6 +1424,49 @@ def test_detached_batch_continues_after_sse_client_closes(
         record["event"] == "plugin_done" and record["plugin"] == "etapa_longa"
         for record in records
     )
+    assert not app_module.is_module_running("publico")
+
+
+def test_detached_batch_stream_sends_heartbeat_while_plugin_is_silent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    write_public_test_module(user_modules_dir, "publico")
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_create_plugin(
+        plugin_config: dict[str, object],
+        module_variables: dict[str, dict[str, object]] | None = None,
+    ) -> BasePlugin:
+        return SilentBlockingPlugin(str(plugin_config["id"]), started, release)
+
+    monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
+    module = {
+        "id": "publico",
+        "name": "Publico",
+        "variables": {},
+        "plugins": [{"id": "etapa_silenciosa", "type": "fake"}],
+    }
+    events = stream_detached_batch(module, heartbeat_seconds=0.01)
+
+    try:
+        assert parse_sse_data(next(events))["event"] == "status"
+        assert parse_sse_data(next(events))["event"] == "plugin_start"
+        assert started.wait(timeout=1)
+        assert next(events) == ": heartbeat\n\n"
+    finally:
+        events.close()
+        release.set()
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and app_module.is_module_running("publico"):
+        time.sleep(0.01)
+
     assert not app_module.is_module_running("publico")
 
 
