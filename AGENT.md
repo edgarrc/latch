@@ -21,7 +21,8 @@ Este documento deve ser usado por ferramentas de IA e agentes de desenvolvimento
 Estrutura principal:
 
 - `app.py`: entrypoint Flask, rotas HTTP, execução batch, locking, logs persistidos e controle de execução ativa.
-- `modules/`: configurações YAML dos módulos.
+- `modules/user/`: configurações YAML dos módulos criados pelo usuário.
+- `modules/system/`: módulos internos usados por desenvolvimento e testes automatizados.
 - `plugins/`: implementação dos tipos de plugin.
 - `plugins/variables.py`: validação, resolução, substituição e mascaramento de variáveis de módulo usadas por comandos.
 - `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
@@ -29,15 +30,15 @@ Estrutura principal:
 - `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
 - `tests/`: testes de contrato e comportamento.
 
-Módulos suportados:
+Módulos de usuário:
 
-- Todo arquivo válido em `modules/<module>.yaml` é descoberto automaticamente.
+- Todo arquivo válido em `modules/user/<module>.yaml` é descoberto automaticamente.
 - O ID do módulo é o nome do arquivo sem `.yaml` e deve conter apenas letras, números, `_` ou `-`.
 - Cada módulo é exposto em `/<module>`.
 
 Configuração de módulo:
 
-- Cada módulo possui um YAML em `modules/<module>.yaml`.
+- Cada módulo de usuário possui um YAML em `modules/user/<module>.yaml`.
 - O YAML define `name`, opcionalmente `description`, opcionalmente `variables`, e a lista ordenada `plugins`.
 - Cada plugin pode declarar `description` textual para explicar a etapa.
 - A ordem da lista é a ordem exata de execução.
@@ -90,8 +91,8 @@ Variáveis de módulo:
 - A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
 - A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão.
 - `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos.
-- `Save` persiste em `modules/<module>.yaml` e é bloqueado enquanto o módulo está em execução.
-- A exclusão remove `modules/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
+- `Save` persiste em `modules/user/<module>.yaml` e é bloqueado enquanto o módulo está em execução.
+- A exclusão remove `modules/user/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
 - Status por etapa:
   - `Não iniciado`: estado inicial da tela, antes de uma execução ou depois de limpar logs.
   - `Enfileirado`: etapa futura dentro da execução atual.
@@ -181,7 +182,7 @@ Rotas principais:
 - `GET /api/modules/status`: status de todos os módulos.
 - `GET /api/modules/<module>/status`: status de um módulo.
 - `POST /api/modules/validate`: valida YAML de módulo sem persistir.
-- `POST /api/modules`: cria módulo em `modules/<module>.yaml`.
+- `POST /api/modules`: cria módulo em `modules/user/<module>.yaml`.
 - `PUT /api/modules/<module>`: salva YAML de módulo existente.
 - `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados.
 - `GET /api/modules/<module>/run`: inicia execução via SSE.
@@ -213,9 +214,10 @@ Padrões atuais:
 
 Módulos de sistema:
 
-- `teste_automatizado` é reservado para testes automatizados e arquitetura interna.
-- Não deve aparecer na listagem, status global ou rotas públicas da interface/API.
-- Pode ser editado livremente por agentes para cobrir comportamentos de teste, mas não deve ser usado como módulo de usuário ou exemplo de produto.
+- Módulos em `modules/system/*.yaml` são reservados para testes automatizados e arquitetura interna.
+- Eles não devem aparecer na listagem, status global ou rotas públicas da interface/API.
+- Agentes podem editá-los livremente para cobrir comportamentos de teste.
+- Módulos em `modules/user/*.yaml` são dados operacionais da instalação e não devem ser tratados como contrato fixo da suíte.
 
 Estados da tela do módulo:
 
@@ -270,9 +272,9 @@ Manter cobertura para:
 - Kill bloqueado quando parado.
 - Kill chamando `plugin.kill()` quando ativo.
 - `command_line` gravando PID/PGID e encerrando como `killed`.
-- Descoberta dinâmica de módulos em `modules/*.yaml`.
+- Descoberta dinâmica de módulos de usuário em `modules/user/*.yaml`.
 - Validação de YAML de módulo sem persistir.
-- Criação e edição de módulo persistindo em `modules/<module>.yaml`.
+- Criação e edição de módulo persistindo em `modules/user/<module>.yaml`.
 - Bloqueio de salvamento quando o módulo está em execução.
 - Exclusão de módulo removendo YAML, log temporário, execução ativa temporária e lock.
 - Bloqueio de exclusão quando o módulo está em execução.

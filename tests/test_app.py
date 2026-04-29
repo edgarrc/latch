@@ -17,6 +17,7 @@ from app import (
     discover_module_names,
     get_active_kill_requested,
     load_module_config,
+    load_system_module_config,
     read_module_log,
     remove_active_run,
     set_active_plugin,
@@ -102,20 +103,25 @@ def configure_temp_runtime_dirs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ):
-    modules_dir = tmp_path / "modules"
+    modules_root = tmp_path / "modules"
+    user_modules_dir = modules_root / "user"
+    system_modules_dir = modules_root / "system"
     temp_dir = tmp_path / "temp"
     locks_dir = tmp_path / "locks"
-    modules_dir.mkdir()
+    user_modules_dir.mkdir(parents=True)
+    system_modules_dir.mkdir(parents=True)
     temp_dir.mkdir()
     locks_dir.mkdir()
-    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
+    monkeypatch.setattr(app_module, "MODULES_ROOT", modules_root)
+    monkeypatch.setattr(app_module, "USER_MODULES_DIR", user_modules_dir)
+    monkeypatch.setattr(app_module, "SYSTEM_MODULES_DIR", system_modules_dir)
     monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
     monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
-    return modules_dir, temp_dir, locks_dir
+    return user_modules_dir, system_modules_dir, temp_dir, locks_dir
 
 
-def write_public_test_module(modules_dir, module_id: str = "publico") -> None:
-    modules_dir.joinpath(f"{module_id}.yaml").write_text(
+def write_public_test_module(user_modules_dir, module_id: str = "publico") -> None:
+    user_modules_dir.joinpath(f"{module_id}.yaml").write_text(
         (
             "name: Publico\n"
             "description: Modulo publico temporario.\n"
@@ -351,7 +357,7 @@ def test_login_accepts_valid_password_and_logout_clears_session(
 
 
 def test_load_module_config_reads_configured_plugins() -> None:
-    module = load_module_config("teste_automatizado")
+    module = load_system_module_config("teste_automatizado")
 
     assert module["id"] == "teste_automatizado"
     assert module["description"]
@@ -359,33 +365,21 @@ def test_load_module_config_reads_configured_plugins() -> None:
     assert module["plugins"][0]["description"]
 
 
-def test_carga_analitico_module_declares_clickhouse_delete_command() -> None:
-    module = load_module_config("carga_analitico")
-    plugin = module["plugins"][0]
-
-    assert module["variables"]["clickhouse_user"] == {
-        "type": "string",
-        "value": "default",
-    }
-    assert module["variables"]["clickhouse_password"] == {
-        "type": "sensitive",
-        "value": "$CLICKHOUSE_PASSWORD",
-    }
-    assert plugin["command"][0] == "/usr/bin/clickhouse-client"
-    assert "{clickhouse_user}" in plugin["command"]
-    assert "{clickhouse_password}" in plugin["command"]
-    assert "DELETE FROM eduplus.mv_filtros_relat_base_avaliacao_resposta" in plugin["command"][-1]
-    assert "WHERE ano = toYear(now());" in plugin["command"][-1]
-
-
 def test_discover_module_names_reads_yaml_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(app_module, "MODULES_DIR", tmp_path)
-    (tmp_path / "zeta.yaml").write_text("name: Zeta\nplugins: []\n", encoding="utf-8")
-    (tmp_path / "alpha.yaml").write_text("name: Alpha\nplugins: []\n", encoding="utf-8")
-    (tmp_path / "bad.name.yaml").write_text("name: Bad\nplugins: []\n", encoding="utf-8")
+    user_modules_dir, system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
+    (user_modules_dir / "zeta.yaml").write_text("name: Zeta\nplugins: []\n", encoding="utf-8")
+    (user_modules_dir / "alpha.yaml").write_text("name: Alpha\nplugins: []\n", encoding="utf-8")
+    (user_modules_dir / "bad.name.yaml").write_text("name: Bad\nplugins: []\n", encoding="utf-8")
+    (system_modules_dir / "teste_automatizado.yaml").write_text(
+        "name: Sistema\nplugins: []\n",
+        encoding="utf-8",
+    )
 
     assert discover_module_names() == ["alpha", "zeta"]
 
@@ -411,8 +405,8 @@ def test_module_page_renders_plugin_status_column(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
 
     client = app.test_client()
     response = client.get("/publico")
@@ -428,8 +422,8 @@ def test_index_renders_add_and_edit_actions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
 
     client = app.test_client()
     response = client.get("/")
@@ -443,8 +437,8 @@ def test_pages_subscribe_to_global_events_instead_of_polling(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
 
     client = app.test_client()
 
@@ -481,7 +475,10 @@ def test_create_module_endpoint_persists_yaml(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(app_module, "MODULES_DIR", tmp_path)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
 
     client = app.test_client()
     response = client.post(
@@ -502,18 +499,38 @@ def test_create_module_endpoint_persists_yaml(
 
     assert response.status_code == 201
     assert response.get_json()["saved"] is True
-    assert (tmp_path / "novo.yaml").exists()
-    assert "description: Modulo novo" in (tmp_path / "novo.yaml").read_text(
+    assert (user_modules_dir / "novo.yaml").exists()
+    assert "description: Modulo novo" in (user_modules_dir / "novo.yaml").read_text(
         encoding="utf-8"
     )
+
+
+def test_create_module_endpoint_rejects_system_module_id() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules",
+        json={
+            "module_id": "teste_automatizado",
+            "content": (
+                "name: Teste\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["saved"] is False
 
 
 def test_update_module_endpoint_blocks_running_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     create_active_run("publico", "test-run")
 
     try:
@@ -557,17 +574,12 @@ def test_delete_module_endpoint_removes_module_and_temporary_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir = tmp_path / "modules"
-    temp_dir = tmp_path / "temp"
-    locks_dir = tmp_path / "locks"
-    modules_dir.mkdir()
-    temp_dir.mkdir()
-    locks_dir.mkdir()
-    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
-    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
-    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+    user_modules_dir, _system_modules_dir, temp_dir, locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
 
-    module_path = modules_dir / "remover.yaml"
+    module_path = user_modules_dir / "remover.yaml"
     log_path = temp_dir / "temp_remover.jsonl"
     active_path = temp_dir / "active_remover.json"
     lock_path = locks_dir / "remover.lock"
@@ -594,8 +606,8 @@ def test_delete_module_endpoint_blocks_running_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     create_active_run("publico", "test-run")
 
     try:
@@ -609,7 +621,7 @@ def test_delete_module_endpoint_blocks_running_module(
 
 
 def test_stream_batch_reports_locked_module() -> None:
-    module = load_module_config("teste_automatizado")
+    module = load_system_module_config("teste_automatizado")
     events = stream_batch(module)
     next(events)
 
@@ -625,15 +637,10 @@ def test_module_locks_are_independent(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir = tmp_path / "modules"
-    temp_dir = tmp_path / "temp"
-    locks_dir = tmp_path / "locks"
-    modules_dir.mkdir()
-    temp_dir.mkdir()
-    locks_dir.mkdir()
-    monkeypatch.setattr(app_module, "MODULES_DIR", modules_dir)
-    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
-    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(
+        monkeypatch,
+        tmp_path,
+    )
     module_yaml = (
         "name: Teste\n"
         "plugins:\n"
@@ -642,8 +649,8 @@ def test_module_locks_are_independent(
         "    command: echo concluido\n"
         "    success_contains: concluido\n"
     )
-    (modules_dir / "lock_primario.yaml").write_text(module_yaml, encoding="utf-8")
-    (modules_dir / "lock_secundario.yaml").write_text(module_yaml, encoding="utf-8")
+    (user_modules_dir / "lock_primario.yaml").write_text(module_yaml, encoding="utf-8")
+    (user_modules_dir / "lock_secundario.yaml").write_text(module_yaml, encoding="utf-8")
 
     primary_events = stream_batch(load_module_config("lock_primario"))
     next(primary_events)
@@ -658,7 +665,7 @@ def test_module_locks_are_independent(
 
 
 def test_stream_batch_persists_last_execution_log() -> None:
-    list(stream_batch(load_module_config("teste_automatizado")))
+    list(stream_batch(load_system_module_config("teste_automatizado")))
 
     records = read_module_log("teste_automatizado")
 
@@ -669,7 +676,7 @@ def test_stream_batch_persists_last_execution_log() -> None:
 
 
 def test_stream_batch_emits_plugin_statuses_on_success() -> None:
-    events = [parse_sse_data(event) for event in stream_batch(load_module_config("teste_automatizado"))]
+    events = [parse_sse_data(event) for event in stream_batch(load_system_module_config("teste_automatizado"))]
 
     status_event = events[0]
     first_plugin_start = next(
@@ -766,7 +773,7 @@ def test_stream_batch_keeps_future_plugins_enqueued_after_kill(
 
 
 def test_active_run_file_persists_plugin_statuses_during_execution() -> None:
-    events = stream_batch(load_module_config("teste_automatizado"))
+    events = stream_batch(load_system_module_config("teste_automatizado"))
     first_event = parse_sse_data(next(events))
 
     try:
@@ -822,8 +829,8 @@ def test_module_logs_endpoint_returns_persisted_events(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     list(stream_batch(load_module_config("publico")))
 
     client = app.test_client()
@@ -841,8 +848,8 @@ def test_module_logs_endpoint_resets_when_new_run_replaces_previous_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     list(stream_batch(load_module_config("publico")))
     previous_records = read_module_log("publico")
     previous_run_id = previous_records[-1]["run_id"]
@@ -866,8 +873,8 @@ def test_clear_module_logs_when_module_is_not_running(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     list(stream_batch(load_module_config("publico")))
 
     client = app.test_client()
@@ -882,8 +889,8 @@ def test_clear_module_logs_is_blocked_while_module_is_running(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     events = stream_batch(load_module_config("publico"))
     next(events)
 
@@ -901,8 +908,8 @@ def test_kill_module_returns_conflict_when_module_is_not_running(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
 
     client = app.test_client()
     response = client.post("/api/modules/publico/kill")
@@ -915,8 +922,8 @@ def test_kill_module_calls_active_plugin_kill(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
-    write_public_test_module(modules_dir)
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
     plugin = FakeKillablePlugin()
     create_active_run("publico", "test-run")
     set_active_plugin("publico", plugin, {"type": "fake"})

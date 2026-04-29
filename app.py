@@ -41,7 +41,9 @@ from plugins.variables import prepare_command_plugin_config, validate_variable_d
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MODULES_DIR = BASE_DIR / "modules"
+MODULES_ROOT = BASE_DIR / "modules"
+USER_MODULES_DIR = MODULES_ROOT / "user"
+SYSTEM_MODULES_DIR = MODULES_ROOT / "system"
 LOCKS_DIR = BASE_DIR / "locks"
 TEMP_DIR = BASE_DIR / "temp"
 SETTINGS_PATH = BASE_DIR / "settings.yaml"
@@ -51,11 +53,12 @@ MODULE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 PLUGIN_TYPES = {
     "command_line": "plugins.command_line.CommandLinePlugin",
 }
-SYSTEM_MODULE_IDS = {"teste_automatizado"}
 ACTIVE_MODULES: set[str] = set()
 ACTIVE_RUNS: dict[str, "ActiveRun"] = {}
 ACTIVE_MODULES_LOCK = threading.Lock()
 
+USER_MODULES_DIR.mkdir(parents=True, exist_ok=True)
+SYSTEM_MODULES_DIR.mkdir(parents=True, exist_ok=True)
 LOCKS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 app = Flask(__name__)
@@ -776,25 +779,20 @@ def run_module(module_name: str) -> Response:
         },
     )
 
-
-def is_system_module(module_name: str) -> bool:
-    return module_name in SYSTEM_MODULE_IDS
-
-
-def ensure_not_system_module(module_name: str) -> None:
-    if is_system_module(module_name):
-        raise ValueError("ID reservado para uso interno do sistema.")
-
-
-def discover_module_names(*, include_system: bool = False) -> list[str]:
+def discover_module_names() -> list[str]:
     module_names = [
         path.stem
-        for path in MODULES_DIR.glob("*.yaml")
-        if (
-            path.is_file()
-            and MODULE_ID_RE.fullmatch(path.stem)
-            and (include_system or not is_system_module(path.stem))
-        )
+        for path in USER_MODULES_DIR.glob("*.yaml")
+        if path.is_file() and MODULE_ID_RE.fullmatch(path.stem)
+    ]
+    return sorted(module_names)
+
+
+def discover_system_module_names() -> list[str]:
+    module_names = [
+        path.stem
+        for path in SYSTEM_MODULES_DIR.glob("*.yaml")
+        if path.is_file() and MODULE_ID_RE.fullmatch(path.stem)
     ]
     return sorted(module_names)
 
@@ -808,12 +806,41 @@ def validate_module_id(module_name: str) -> None:
 
 def module_config_path(module_name: str) -> Path:
     validate_module_id(module_name)
-    return MODULES_DIR / f"{module_name}.yaml"
+    return USER_MODULES_DIR / f"{module_name}.yaml"
+
+
+def system_module_config_path(module_name: str) -> Path:
+    validate_module_id(module_name)
+    return SYSTEM_MODULES_DIR / f"{module_name}.yaml"
+
+
+def any_module_config_path(module_name: str) -> Path:
+    user_path = module_config_path(module_name)
+    if user_path.exists():
+        return user_path
+
+    system_path = system_module_config_path(module_name)
+    if system_path.exists():
+        return system_path
+
+    return user_path
+
+
+def is_system_module(module_name: str) -> bool:
+    try:
+        return system_module_config_path(module_name).exists()
+    except ValueError:
+        return False
+
+
+def ensure_not_system_module(module_name: str) -> None:
+    if is_system_module(module_name):
+        raise ValueError("ID reservado para uso interno do sistema.")
 
 
 def ensure_module_exists(module_name: str) -> None:
     try:
-        config_path = module_config_path(module_name)
+        config_path = any_module_config_path(module_name)
     except ValueError:
         abort(404)
     if not config_path.exists():
@@ -821,9 +848,12 @@ def ensure_module_exists(module_name: str) -> None:
 
 
 def ensure_public_module_exists(module_name: str) -> None:
-    if is_system_module(module_name):
+    try:
+        config_path = module_config_path(module_name)
+    except ValueError:
         abort(404)
-    ensure_module_exists(module_name)
+    if not config_path.exists():
+        abort(404)
 
 
 def read_module_yaml(module_name: str) -> str:
@@ -944,7 +974,21 @@ def delete_module_files(module_name: str) -> None:
 
 def load_module_config(module_name: str) -> dict[str, Any]:
     ensure_module_exists(module_name)
-    config_path = module_config_path(module_name)
+    config_path = any_module_config_path(module_name)
+    if not config_path.exists():
+        abort(404)
+
+    with config_path.open("r", encoding="utf-8") as config_file:
+        config = parse_module_yaml(config_file.read())
+
+    return validate_module_config(module_name, config, instantiate_plugins=False)
+
+
+def load_system_module_config(module_name: str) -> dict[str, Any]:
+    try:
+        config_path = system_module_config_path(module_name)
+    except ValueError:
+        abort(404)
     if not config_path.exists():
         abort(404)
 

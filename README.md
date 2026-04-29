@@ -20,7 +20,7 @@ Casos de uso típicos:
 
 ## Funcionalidades
 
-- Módulos acessíveis por rota, como `/modulo_exemplo` e `/carga_analitico`.
+- Módulos de usuário acessíveis por rota, como `/<id_do_modulo>`.
 - Configuração de plugins por YAML.
 - Criação e edição de módulos pela interface web.
 - Validação de YAML antes de salvar.
@@ -56,7 +56,10 @@ Casos de uso típicos:
 .
 ├── app.py
 ├── modules/
-│   └── *.yaml
+│   ├── user/
+│   │   └── *.yaml
+│   └── system/
+│       └── *.yaml
 ├── plugins/
 │   ├── base.py
 │   ├── command_line.py
@@ -75,7 +78,7 @@ Casos de uso típicos:
 
 ## Configuração de Módulos
 
-Cada módulo é definido em `modules/<nome>.yaml`. O nome do arquivo, sem `.yaml`, é o ID do módulo e deve conter apenas letras, números, `_` ou `-`.
+Cada módulo de usuário é definido em `modules/user/<nome>.yaml`. O nome do arquivo, sem `.yaml`, é o ID do módulo e deve conter apenas letras, números, `_` ou `-`.
 
 Exemplo:
 
@@ -192,7 +195,7 @@ A página principal possui o botão `Adicionar` e cada linha possui `Editar`.
 A tela de edição trabalha com YAML bruto e oferece:
 
 - `Validate`: valida sintaxe YAML, campos obrigatórios, tipos de plugin, variáveis e placeholders sem persistir.
-- `Salvar`: valida novamente e grava em `modules/<nome>.yaml`.
+- `Salvar`: valida novamente e grava em `modules/user/<nome>.yaml`.
 - `Excluir`: remove o YAML do módulo e arquivos temporários relacionados.
 
 O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch. A validação continua disponível.
