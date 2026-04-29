@@ -32,6 +32,30 @@ def test_command_line_plugin_succeeds_with_success_string() -> None:
     assert any("exit code 0" in message for message in messages)
 
 
+def test_command_line_plugin_truncates_started_command_log() -> None:
+    long_argument = "a" * 520 + "tail"
+    plugin = CommandLinePlugin(
+        "long_command",
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "print('ok')",
+                long_argument,
+            ],
+        },
+    )
+
+    messages = collect(plugin)
+    started_message = messages[0]
+
+    assert started_message.startswith("Iniciando comando: ")
+    assert started_message.endswith("[...]")
+    command_preview = started_message.removeprefix("Iniciando comando: ").removesuffix("[...]")
+    assert len(command_preview) == 500
+    assert "tail" not in started_message
+
+
 def test_command_line_plugin_fails_on_non_zero_exit_code() -> None:
     plugin = CommandLinePlugin(
         "bad_exit",

@@ -17,6 +17,9 @@ from .base import (
 from .variables import mask_sensitive_text
 
 
+COMMAND_LOG_PREVIEW_LIMIT = 500
+
+
 class CommandLinePlugin(BasePlugin):
     plugin_type = "command_line"
 
@@ -50,7 +53,7 @@ class CommandLinePlugin(BasePlugin):
             raise ValueError(f"Plugin {plugin_id!r} sensitive values must be strings.")
 
     def run(self) -> Iterator[PluginEvent]:
-        yield PluginEvent("info", f"Iniciando comando: {self._display_command()}")
+        yield PluginEvent("info", f"Iniciando comando: {self._display_command_preview()}")
 
         process: subprocess.Popen[str] | None = None
         try:
@@ -234,6 +237,12 @@ class CommandLinePlugin(BasePlugin):
         if isinstance(self.command, list):
             return " ".join(str(part) for part in self.command)
         return self.command
+
+    def _display_command_preview(self) -> str:
+        command = self._display_command()
+        if len(command) <= COMMAND_LOG_PREVIEW_LIMIT:
+            return command
+        return f"{command[:COMMAND_LOG_PREVIEW_LIMIT]}[...]"
 
     def _mask_text(self, text: str) -> str:
         return mask_sensitive_text(text, self.sensitive_values)
