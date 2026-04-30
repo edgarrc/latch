@@ -60,7 +60,7 @@ class CommandLinePlugin(BasePlugin):
         if not all(isinstance(value, str) for value in self.sensitive_values):
             raise ValueError(f"Plugin {plugin_id!r} sensitive values must be strings.")
 
-    def run(self) -> Iterator[PluginEvent]:
+    def _run_once(self) -> Iterator[PluginEvent]:
         yield PluginEvent("info", f"Iniciando comando: {self._display_command_preview()}")
 
         process: subprocess.Popen[str] | None = None
@@ -226,6 +226,12 @@ class CommandLinePlugin(BasePlugin):
     def _was_kill_requested(self) -> bool:
         with self._process_lock:
             return self._kill_requested
+
+    def _prepare_retry(self) -> None:
+        with self._process_lock:
+            self._kill_requested = False
+            self._process = None
+            self._process_group_id = None
 
     @staticmethod
     def _read_stream(

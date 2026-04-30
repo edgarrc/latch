@@ -47,6 +47,9 @@ Configuração de módulo:
 - `schedule_enabled` é booleano opcional. Quando ausente, um módulo com `schedule` continua habilitado por compatibilidade; quando `false`, o cron fica configurado, mas não dispara.
 - `schedule` vazio, ausente ou `null` deixa o módulo sem agendamento ativo.
 - Cada plugin pode declarar `description` textual para explicar a etapa.
+- Cada plugin pode declarar `timeout` em segundos inteiros positivos e `timeout_retries` como inteiro não negativo.
+- `timeout` ausente ou `null` significa espera indefinida; `timeout_retries` só tem efeito quando `timeout` está preenchido.
+- `timeout_retries` representa retries extras: `timeout_retries: 1` executa a tentativa inicial e mais um retry.
 - A ordem da lista é a ordem exata de execução.
 
 Exemplo:
@@ -123,6 +126,7 @@ Variáveis de módulo:
 - Se o usuário sair da página e voltar durante uma execução, o console deve continuar mostrando a saída já gerada e seguir acompanhando novos logs.
 - `Clear` apaga o log da última execução apenas se o módulo não estiver em execução.
 - `Kill` interrompe o plugin atualmente em execução e encerra o batch como `killed`.
+- Timeout de plugin chama o `kill()` do plugin ativo; se todas as tentativas expirarem, a etapa encerra como `Falhou` e o batch como `failed`.
 
 ## Plugins
 
@@ -130,7 +134,8 @@ Todo plugin deve herdar de `BasePlugin`.
 
 Contrato base:
 
-- `run() -> Iterator[PluginEvent]`: executa o plugin e emite eventos de log.
+- `run() -> Iterator[PluginEvent]`: método público fornecido por `BasePlugin`, aplica `timeout`/`timeout_retries` e emite eventos de log.
+- `_run_once() -> Iterator[PluginEvent]`: executa uma tentativa do plugin e emite eventos de log.
 - `kill() -> None`: interrompe a execução ativa do plugin.
 - `set_runtime_context(...)`: recebe contexto de módulo/run e callback para atualizar metadados de execução.
 
@@ -142,7 +147,7 @@ Erros padronizados:
 
 Novos tipos de plugin devem:
 
-- Implementar `run()`.
+- Implementar `_run_once()`.
 - Implementar `kill()`.
 - Emitir logs claros.
 - Registrar metadados úteis via `update_runtime_metadata()`, quando aplicável.

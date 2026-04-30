@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 import sys
+import time
 
 import pytest
 
@@ -165,6 +166,89 @@ def test_command_line_plugin_rejects_invalid_command_list() -> None:
 def test_command_line_plugin_rejects_invalid_pipeline(pipeline: object) -> None:
     with pytest.raises(ValueError, match="pipeline must be a non-empty string"):
         CommandLinePlugin("invalid", {"command": "echo ok", "pipeline": pipeline})
+
+
+def test_command_line_plugin_times_out_and_kills_process() -> None:
+    plugin = CommandLinePlugin(
+        "slow",
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import time; time.sleep(5)",
+            ],
+            "timeout": 1,
+        },
+    )
+
+    started_at = time.monotonic()
+    with pytest.raises(PluginExecutionError, match="timeout"):
+        collect(plugin)
+
+    assert time.monotonic() - started_at < 4
+
+
+def test_command_line_plugin_retries_timeout_extra_attempts() -> None:
+    plugin = CommandLinePlugin(
+        "slow_retry",
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "import time; print('attempt', flush=True); time.sleep(5)",
+            ],
+            "timeout": 1,
+            "timeout_retries": 1,
+        },
+    )
+    messages: list[str] = []
+
+    with pytest.raises(PluginExecutionError, match="timeout"):
+        for event in plugin.run():
+            messages.append(event.message)
+
+    assert sum(message.startswith("Iniciando comando:") for message in messages) == 2
+    assert any("retry 1/1" in message for message in messages)
+    assert any("Tentando novamente" in message for message in messages)
+
+
+def test_command_line_plugin_ignores_timeout_retries_without_timeout() -> None:
+    plugin = CommandLinePlugin(
+        "retry_without_timeout",
+        {
+            "command": [
+                sys.executable,
+                "-c",
+                "print('ok')",
+            ],
+            "timeout_retries": 1,
+        },
+    )
+
+    messages = collect(plugin)
+
+    assert any("ok" in message for message in messages)
+    assert not any("Tentando novamente" in message for message in messages)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, "1", 1.5, True])
+def test_command_line_plugin_rejects_invalid_timeout(timeout: object) -> None:
+    with pytest.raises(ValueError, match="timeout must be a positive integer"):
+        CommandLinePlugin("invalid", {"command": "echo ok", "timeout": timeout})
+
+
+@pytest.mark.parametrize("timeout_retries", [-1, "1", 1.5, True])
+def test_command_line_plugin_rejects_invalid_timeout_retries(
+    timeout_retries: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="timeout_retries must be a non-negative integer",
+    ):
+        CommandLinePlugin(
+            "invalid",
+            {"command": "echo ok", "timeout_retries": timeout_retries},
+        )
 
 
 def test_variable_definitions_reject_invalid_schema() -> None:

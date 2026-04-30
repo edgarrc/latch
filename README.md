@@ -132,6 +132,8 @@ Use `schedule` opcionalmente para executar o módulo de forma automática. O val
 
 Módulos agendados continuam permitindo execução manual quando estão parados. Durante uma execução agendada, a página do módulo usa os mesmos controles de uma execução manual: `Executar` e `Clear` ficam bloqueados, `Kill` continua disponível e o console pode ser reaberto acompanhando os logs persistidos.
 
+Cada plugin pode definir `timeout` e `timeout_retries`. `timeout` é opcional, em segundos inteiros positivos; quando ausente, a etapa espera indefinidamente. Se o timeout expirar, o Latch chama o `kill()` do plugin ativo. `timeout_retries` é opcional, inteiro não negativo, e só tem efeito quando `timeout` também está preenchido; `timeout_retries: 1` significa uma tentativa inicial e mais um retry. Se todas as tentativas expirarem, a etapa falha e o batch é interrompido.
+
 ### Variáveis de Módulo
 
 Um módulo pode declarar `variables:` para reutilizar valores nos comandos. O comando usa placeholders no formato `{nome_da_variavel}`.
@@ -369,8 +371,10 @@ pytest
 
 Novos plugins devem herdar de `BasePlugin` e implementar:
 
-- `run()`: executa o plugin e emite eventos de log.
+- `_run_once()`: executa uma tentativa do plugin e emite eventos de log.
 - `kill()`: interrompe a execução ativa do plugin.
+
+O método público `run()` é fornecido por `BasePlugin` e aplica a lógica comum de `timeout` e `timeout_retries`.
 
 O contrato completo e as regras de arquitetura estão documentados em `AGENT.md`.
 
@@ -396,6 +400,8 @@ Na página do módulo, cada plugin aparece com um status individual:
 - `Concluído`: etapa finalizada com sucesso.
 - `Falhou`: etapa que interrompeu o batch por erro.
 - `Interrompido`: etapa ativa quando o usuário solicitou `Kill`.
+
+Timeout esgotado é tratado como falha operacional: a etapa aparece como `Falhou`.
 
 Esses estados são reconstruídos pelos eventos persistidos da execução, então continuam aparecendo corretamente ao recarregar a página durante ou após um batch.
 

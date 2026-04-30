@@ -1224,6 +1224,24 @@ def validate_optional_text(config: dict[str, Any], key: str, context: str) -> st
     return value
 
 
+def validate_plugin_timeout_config(plugin: dict[str, Any], plugin_id: str) -> None:
+    timeout = plugin.get("timeout")
+    if timeout is not None:
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+            raise ValueError(f"Plugin {plugin_id!r} timeout must be a positive integer.")
+
+    timeout_retries = plugin.get("timeout_retries")
+    if timeout_retries is not None:
+        if (
+            isinstance(timeout_retries, bool)
+            or not isinstance(timeout_retries, int)
+            or timeout_retries < 0
+        ):
+            raise ValueError(
+                f"Plugin {plugin_id!r} timeout_retries must be a non-negative integer."
+            )
+
+
 def validate_module_config(
     module_name: str,
     config: dict[str, Any],
@@ -1265,6 +1283,7 @@ def validate_module_config(
         if plugin_type not in PLUGIN_TYPES:
             raise ValueError(f"Tipo de plugin desconhecido: {plugin_type!r}.")
         validate_optional_text(plugin, "description", f"Plugin {plugin_id!r}")
+        validate_plugin_timeout_config(plugin, plugin_id)
 
         if instantiate_plugins:
             create_plugin(plugin, variables)

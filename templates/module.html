@@ -55,6 +55,7 @@
                 <th scope="col" class="text-secondary fw-semibold">Etapa</th>
                 <th scope="col" class="text-secondary fw-semibold">Descrição</th>
                 <th scope="col" class="text-secondary fw-semibold">Tipo</th>
+                <th scope="col" class="text-secondary fw-semibold">Timeout</th>
                 <th scope="col" class="text-secondary fw-semibold text-end">Status</th>
               </tr>
             </thead>
@@ -65,6 +66,13 @@
                   <td class="fw-semibold">{{ plugin.id }}</td>
                   <td class="text-secondary small">{{ plugin.description or "" }}</td>
                   <td class="text-secondary small">{{ plugin.type }}</td>
+                  <td class="text-secondary small">
+                    {% if plugin.timeout %}
+                      {{ plugin.timeout }}s{% if plugin.timeout_retries %} / {{ plugin.timeout_retries }} retry{% if plugin.timeout_retries != 1 %}s{% endif %}{% endif %}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
                   <td class="text-end">
                     <span
                       class="badge plugin-status text-bg-secondary"

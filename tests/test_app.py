@@ -58,7 +58,7 @@ class FakeKillablePlugin(BasePlugin):
         super().__init__("fake_plugin", {"type": "fake"})
         self.killed = False
 
-    def run(self) -> Iterator[PluginEvent]:
+    def _run_once(self) -> Iterator[PluginEvent]:
         yield PluginEvent("info", "fake")
 
     def kill(self) -> None:
@@ -87,7 +87,7 @@ class FakeKilledPlugin(BasePlugin):
     def __init__(self, plugin_id: str) -> None:
         super().__init__(plugin_id, {"type": "fake"})
 
-    def run(self) -> Iterator[PluginEvent]:
+    def _run_once(self) -> Iterator[PluginEvent]:
         raise PluginKilledError("fake killed")
         yield PluginEvent("info", "unreachable")
 
@@ -106,7 +106,7 @@ class BlockingPlugin(BasePlugin):
         self.started = started
         self.release = release
 
-    def run(self) -> Iterator[PluginEvent]:
+    def _run_once(self) -> Iterator[PluginEvent]:
         self.started.set()
         yield PluginEvent("info", "plugin bloqueado")
         self.release.wait(timeout=2)
@@ -127,7 +127,7 @@ class SilentBlockingPlugin(BasePlugin):
         self.started = started
         self.release = release
 
-    def run(self) -> Iterator[PluginEvent]:
+    def _run_once(self) -> Iterator[PluginEvent]:
         self.started.set()
         self.release.wait(timeout=2)
         yield PluginEvent("info", "plugin liberado")
@@ -918,6 +918,34 @@ def test_pages_subscribe_to_global_events_instead_of_polling(
     assert b"setInterval(refreshModuleLogs" not in module_response.data
 
 
+def test_module_page_renders_plugin_timeout_column(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+    module_path = user_modules_dir / "publico.yaml"
+    module_path.write_text(
+        module_path.read_text(encoding="utf-8").replace(
+            "    command: echo preparar_publico concluido\n",
+            (
+                "    command: echo preparar_publico concluido\n"
+                "    timeout: 30\n"
+                "    timeout_retries: 1\n"
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    client = app.test_client()
+    response = client.get("/publico")
+
+    assert response.status_code == 200
+    assert b"Timeout" in response.data
+    assert b"30s" in response.data
+    assert b"1 retry" in response.data
+
+
 def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
     client = app.test_client()
     response = client.post(
@@ -935,6 +963,51 @@ def test_validate_module_endpoint_rejects_invalid_plugin_type() -> None:
 
     assert response.status_code == 400
     assert response.get_json()["valid"] is False
+
+
+def test_validate_module_endpoint_accepts_plugin_timeout_config() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+                "    timeout: 30\n"
+                "    timeout_retries: 1\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["valid"] is True
+
+
+def test_validate_module_endpoint_rejects_invalid_plugin_timeout_config() -> None:
+    client = app.test_client()
+    response = client.post(
+        "/api/modules/validate",
+        json={
+            "module_id": "novo",
+            "content": (
+                "name: Novo\n"
+                "plugins:\n"
+                "  - id: etapa\n"
+                "    type: command_line\n"
+                "    command: echo ok\n"
+                "    timeout: 0\n"
+            ),
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["valid"] is False
+    assert "timeout" in payload["message"]
 
 
 def test_validate_module_endpoint_accepts_client_plugins() -> None:
@@ -1732,6 +1805,42 @@ def test_stream_batch_masks_sensitive_values_in_persisted_log() -> None:
     assert "secret-value" not in serialized_records
     assert "****" in serialized_records
     assert records[-1]["status"] == "success"
+
+
+def test_stream_batch_marks_timed_out_plugin_as_failed() -> None:
+    module = {
+        "id": "teste_automatizado",
+        "name": "Teste automatizado",
+        "variables": {},
+        "plugins": [
+            {
+                "id": "lento",
+                "type": "command_line",
+                "command": [
+                    sys.executable,
+                    "-c",
+                    "import time; time.sleep(5)",
+                ],
+                "timeout": 1,
+            },
+            {
+                "id": "nao_executar",
+                "type": "command_line",
+                "command": "echo nao deve executar",
+            },
+        ],
+    }
+
+    events = [parse_sse_data(event) for event in stream_batch(module)]
+    done_event = events[-1]
+
+    assert done_event["status"] == "failed"
+    assert done_event["plugin"] == "lento"
+    assert "timeout" in done_event["message"]
+    assert done_event["plugin_statuses"] == {
+        "lento": "failed",
+        "nao_executar": "enqueued",
+    }
 
 
 def test_module_logs_endpoint_returns_persisted_events(
