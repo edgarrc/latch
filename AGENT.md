@@ -20,11 +20,20 @@ This document must be used by AI tools and development agents as the project con
 
 Main structure:
 
-- `app.py`: Flask entrypoint, HTTP routes, batch execution, locking, persisted logs, and active execution control.
+- `app.py`: thin Flask/uWSGI entrypoint that exports `app` for `module = app:app` and keeps compatibility exports for older local imports.
+- `latch/web.py`: Flask application object, context processor, authentication gate, and HTTP/SSE routes.
+- `latch/config.py`: project paths, application metadata, user constants, run triggers, and timing constants.
+- `latch/auth.py`: setup/login settings, password hashes, session helpers, and authorization helpers.
+- `latch/modules.py`: module discovery, YAML parsing/preservation, validation, masking, and module file operations.
+- `latch/runtime.py`: per-module locks, active execution state, persisted logs, kill state, batch streaming, and detached batch worker.
+- `latch/events.py`: global app update event hub, replayable SSE signals, and debounced application monitor.
+- `latch/scheduler.py`: module cron scheduler and scheduled detached execution.
+- `latch/plugin_registry.py`: plugin type registry and plugin instantiation.
 - `modules/user/`: YAML configurations for modules created by the user.
 - `modules/system/`: internal modules used by development and automated tests.
-- `plugins/`: implementation of plugin types.
-- `plugins/variables.py`: validation, resolution, substitution, and masking of module variables used by commands.
+- `latch/plugins/`: implementation of plugin types.
+- `latch/plugins/variables.py`: validation, resolution, substitution, and masking of module variables used by commands.
+- `plugins/`: compatibility wrappers for older `plugins.*` imports; new code should import `latch.plugins.*`.
 - `templates/`: HTML UI with Bootstrap CDN and simple JavaScript.
 - `templates/_app_header.html` and `templates/_app_footer.html`: shared discreet branding and official footer.
 - `settings.yaml`: local authentication configuration with password hashes for the fixed `admin` and `user` accounts.

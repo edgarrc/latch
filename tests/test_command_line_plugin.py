@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from plugins.command_line import CommandLinePlugin
-from plugins.base import PluginExecutionError
-from plugins.variables import prepare_command_plugin_config, validate_variable_definitions
+from latch.plugins.command_line import CommandLinePlugin
+from latch.plugins.base import PluginExecutionError
+from latch.plugins.variables import prepare_command_plugin_config, validate_variable_definitions
 
 
 def collect(plugin: CommandLinePlugin) -> list[str]:

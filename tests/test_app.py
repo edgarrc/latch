@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-import app as app_module
+import latch.auth as auth_module
+import latch.config as config_module
+import latch.events as events_module
+import latch.modules as modules_module
+import latch.plugin_registry as plugin_registry_module
+import latch.runtime as runtime_module
+import latch.scheduler as scheduler_module
 import configparser
 import json
 import queue
@@ -14,24 +20,22 @@ from typing import Iterator
 import pytest
 from werkzeug.security import check_password_hash
 
-from app import (
+from app import app
+from latch.config import RUN_TRIGGER_SCHEDULE
+from latch.modules import discover_module_names, load_module_config, load_system_module_config
+from latch.runtime import (
     active_run_path,
-    app,
     clear_generated_temp_files,
     create_active_run,
-    discover_module_names,
     get_active_kill_requested,
-    load_module_config,
-    load_system_module_config,
     read_module_log,
     remove_active_run,
     set_active_plugin,
-    ModuleScheduler,
-    RUN_TRIGGER_SCHEDULE,
     stream_batch,
     stream_detached_batch,
 )
-from plugins.base import BasePlugin, PluginEvent, PluginKilledError
+from latch.scheduler import ModuleScheduler
+from latch.plugins.base import BasePlugin, PluginEvent, PluginKilledError
 
 
 @pytest.fixture(autouse=True)
@@ -141,14 +145,14 @@ def parse_sse_data(event: str) -> dict[str, object]:
     return json.loads(data_line.removeprefix("data: "))
 
 
-def wait_for_event(subscriber: queue.Queue[app_module.AppEvent]) -> app_module.AppEvent:
+def wait_for_event(subscriber: queue.Queue[events_module.AppEvent]) -> events_module.AppEvent:
     return subscriber.get(timeout=1)
 
 
 def wait_for_event_reason(
-    subscriber: queue.Queue[app_module.AppEvent],
+    subscriber: queue.Queue[events_module.AppEvent],
     reason: str,
-) -> app_module.AppEvent:
+) -> events_module.AppEvent:
     deadline = time.monotonic() + 1
     while True:
         remaining = deadline - time.monotonic()
@@ -161,11 +165,11 @@ def wait_for_event_reason(
 
 def assert_latch_branding(response) -> None:
     assert b"Latch" in response.data
-    assert app_module.APP_GITHUB_URL.encode() in response.data
+    assert config_module.APP_GITHUB_URL.encode() in response.data
 
 
 def enable_auth_with_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setattr(app_module, "SETTINGS_PATH", tmp_path / "settings.yaml")
+    monkeypatch.setattr(config_module, "SETTINGS_PATH", tmp_path / "settings.yaml")
     app.config["AUTH_DISABLED"] = False
     app.secret_key = "test-secret"
 
@@ -174,8 +178,8 @@ def write_auth_settings(
     admin_password: str = "secret",
     user_password: str = "user-secret",
 ) -> dict[str, object]:
-    settings = app_module.build_settings(admin_password, user_password)
-    app_module.write_settings(settings)
+    settings = auth_module.build_settings(admin_password, user_password)
+    auth_module.write_settings(settings)
     app.secret_key = settings["secret_key"]
     return settings
 
@@ -199,11 +203,11 @@ def configure_temp_runtime_dirs(
     system_modules_dir.mkdir(parents=True)
     temp_dir.mkdir()
     locks_dir.mkdir()
-    monkeypatch.setattr(app_module, "MODULES_ROOT", modules_root)
-    monkeypatch.setattr(app_module, "USER_MODULES_DIR", user_modules_dir)
-    monkeypatch.setattr(app_module, "SYSTEM_MODULES_DIR", system_modules_dir)
-    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
-    monkeypatch.setattr(app_module, "LOCKS_DIR", locks_dir)
+    monkeypatch.setattr(config_module, "MODULES_ROOT", modules_root)
+    monkeypatch.setattr(config_module, "USER_MODULES_DIR", user_modules_dir)
+    monkeypatch.setattr(config_module, "SYSTEM_MODULES_DIR", system_modules_dir)
+    monkeypatch.setattr(config_module, "TEMP_DIR", temp_dir)
+    monkeypatch.setattr(config_module, "LOCKS_DIR", locks_dir)
     return user_modules_dir, system_modules_dir, temp_dir, locks_dir
 
 
@@ -231,7 +235,7 @@ def write_public_test_module(user_modules_dir, module_id: str = "publico") -> No
 
 
 def test_app_event_hub_publishes_and_replays_events() -> None:
-    event_hub = app_module.AppEventHub(history_size=10)
+    event_hub = events_module.AppEventHub(history_size=10)
     subscriber = event_hub.subscribe()
 
     event = event_hub.publish(
@@ -255,8 +259,8 @@ def test_app_event_hub_publishes_and_replays_events() -> None:
 
 
 def test_application_monitor_coalesces_updates_by_scope_and_module() -> None:
-    event_hub = app_module.AppEventHub()
-    monitor = app_module.ApplicationMonitor(event_hub, debounce_seconds=0.01)
+    event_hub = events_module.AppEventHub()
+    monitor = events_module.ApplicationMonitor(event_hub, debounce_seconds=0.01)
     subscriber = event_hub.subscribe()
 
     monitor.signal(
@@ -316,7 +320,7 @@ def test_setup_creates_settings_hash_and_authenticates(
         },
     )
 
-    settings = app_module.load_settings()
+    settings = auth_module.load_settings()
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
@@ -396,7 +400,7 @@ def test_login_required_for_global_events_when_settings_exist(
 
 def test_global_events_endpoint_streams_published_updates() -> None:
     client = app.test_client()
-    event = app_module.EVENT_HUB.publish(
+    event = events_module.EVENT_HUB.publish(
         scope="module",
         module_id="teste_automatizado",
         resources=["logs"],
@@ -568,7 +572,7 @@ def test_clear_generated_temp_files_removes_module_artifacts(
     log_path.write_text("log\n", encoding="utf-8")
     active_path.write_text("{}", encoding="utf-8")
     unrelated_path.write_text("keep\n", encoding="utf-8")
-    monkeypatch.setattr(app_module, "TEMP_DIR", temp_dir)
+    monkeypatch.setattr(config_module, "TEMP_DIR", temp_dir)
 
     clear_generated_temp_files()
 
@@ -1304,14 +1308,14 @@ def test_update_module_endpoint_persists_original_yaml(
 
 
 def test_create_active_run_signals_status_update() -> None:
-    subscriber = app_module.EVENT_HUB.subscribe()
+    subscriber = events_module.EVENT_HUB.subscribe()
 
     try:
         create_active_run("teste_automatizado", "test-run")
         event = wait_for_event_reason(subscriber, "batch_started")
     finally:
         remove_active_run("teste_automatizado")
-        app_module.EVENT_HUB.unsubscribe(subscriber)
+        events_module.EVENT_HUB.unsubscribe(subscriber)
 
     assert event.scope == "module"
     assert event.module_id == "teste_automatizado"
@@ -1487,7 +1491,7 @@ def test_detached_batch_continues_after_sse_client_closes(
     ) -> BasePlugin:
         return BlockingPlugin(str(plugin_config["id"]), started, release)
 
-    monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
+    monkeypatch.setattr(plugin_registry_module, "create_plugin", fake_create_plugin)
     module = {
         "id": "publico",
         "name": "Publico",
@@ -1518,7 +1522,7 @@ def test_detached_batch_continues_after_sse_client_closes(
         record["event"] == "plugin_done" and record["plugin"] == "etapa_longa"
         for record in records
     )
-    assert not app_module.is_module_running("publico")
+    assert not runtime_module.is_module_running("publico")
 
 
 def test_detached_batch_stream_sends_heartbeat_while_plugin_is_silent(
@@ -1539,7 +1543,7 @@ def test_detached_batch_stream_sends_heartbeat_while_plugin_is_silent(
     ) -> BasePlugin:
         return SilentBlockingPlugin(str(plugin_config["id"]), started, release)
 
-    monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
+    monkeypatch.setattr(plugin_registry_module, "create_plugin", fake_create_plugin)
     module = {
         "id": "publico",
         "name": "Publico",
@@ -1558,10 +1562,10 @@ def test_detached_batch_stream_sends_heartbeat_while_plugin_is_silent(
         release.set()
 
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and app_module.is_module_running("publico"):
+    while time.monotonic() < deadline and runtime_module.is_module_running("publico"):
         time.sleep(0.01)
 
-    assert not app_module.is_module_running("publico")
+    assert not runtime_module.is_module_running("publico")
 
 
 def test_scheduler_triggers_due_scheduled_module(
@@ -1605,7 +1609,7 @@ def test_scheduler_triggers_due_scheduled_module(
         thread = threading.Thread(target=lambda: None)
         return thread
 
-    monkeypatch.setattr(app_module, "start_detached_batch", fake_start_detached_batch)
+    monkeypatch.setattr(runtime_module, "start_detached_batch", fake_start_detached_batch)
     scheduler = ModuleScheduler()
     now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -1645,7 +1649,7 @@ def test_scheduler_skips_disabled_scheduled_module(
     )
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
-        app_module,
+        runtime_module,
         "start_detached_batch",
         lambda *args, **kwargs: calls.append({"args": args, "kwargs": kwargs}),
     )
@@ -1683,7 +1687,7 @@ def test_scheduler_skips_due_module_when_it_is_already_running(
     )
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
-        app_module,
+        runtime_module,
         "start_detached_batch",
         lambda *args, **kwargs: calls.append({"args": args, "kwargs": kwargs}),
     )
@@ -1744,7 +1748,7 @@ def test_stream_batch_keeps_future_plugins_enqueued_after_kill(
     ) -> BasePlugin:
         return FakeKilledPlugin(str(plugin_config["id"]))
 
-    monkeypatch.setattr(app_module, "create_plugin", fake_create_plugin)
+    monkeypatch.setattr(plugin_registry_module, "create_plugin", fake_create_plugin)
     module = {
         "id": "teste_automatizado",
         "name": "Teste automatizado",

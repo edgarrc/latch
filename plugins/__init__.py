@@ -1,1 +1,1 @@
-"""Plugin package for batch command modules."""
+"""Compatibility package for legacy plugins imports."""

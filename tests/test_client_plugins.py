@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-import plugins.clickhouse_client as clickhouse_client_module
-import plugins.redis_client as redis_client_module
-from plugins.base import PluginExecutionError, PluginKilledError
-from plugins.clickhouse_client import ClickHouseClientPlugin
-from plugins.redis_client import RedisClientPlugin
-from plugins.variables import prepare_plugin_config
+import latch.plugins.clickhouse_client as clickhouse_client_module
+import latch.plugins.redis_client as redis_client_module
+from latch.plugins.base import PluginExecutionError, PluginKilledError
+from latch.plugins.clickhouse_client import ClickHouseClientPlugin
+from latch.plugins.redis_client import RedisClientPlugin
+from latch.plugins.variables import prepare_plugin_config
 
 
 def collect(plugin) -> list[str]:

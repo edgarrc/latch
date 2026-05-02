@@ -63,17 +63,29 @@ Typical use cases:
 ```text
 .
 +-- app.py
++-- latch/
+|   +-- auth.py
+|   +-- config.py
+|   +-- events.py
+|   +-- modules.py
+|   +-- plugin_registry.py
+|   +-- runtime.py
+|   +-- scheduler.py
+|   +-- utils.py
+|   +-- web.py
+|   +-- plugins/
+|       +-- base.py
+|       +-- clickhouse_client.py
+|       +-- command_line.py
+|       +-- redis_client.py
+|       +-- variables.py
 +-- modules/
 |   +-- user/
 |   |   +-- *.yaml
 |   +-- system/
 |       +-- *.yaml
 +-- plugins/
-|   +-- base.py
-|   +-- clickhouse_client.py
-|   +-- command_line.py
-|   +-- redis_client.py
-|   +-- variables.py
+|   +-- compatibility wrappers for legacy imports
 +-- templates/
 |   +-- _app_footer.html
 |   +-- _app_header.html
@@ -90,6 +102,12 @@ Typical use cases:
 +-- AGENT.md
 +-- README.md
 ```
+
+`app.py` remains the Flask/uWSGI entrypoint and exports the application as `app`
+for `module = app:app`. The application code lives under `latch/`: routes in
+`latch/web.py`, module YAML handling in `latch/modules.py`, runtime execution
+state in `latch/runtime.py`, global SSE signals in `latch/events.py`, scheduling
+in `latch/scheduler.py`, and plugin implementations in `latch/plugins/`.
 
 ## Authentication
 
