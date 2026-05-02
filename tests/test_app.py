@@ -630,6 +630,24 @@ def test_module_page_renders_plugin_status_column(
     assert b"Not started" in response.data
 
 
+def test_module_page_formats_log_times_as_24_hour_clock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    user_modules_dir, _system_modules_dir, _temp_dir, _locks_dir = configure_temp_runtime_dirs(monkeypatch, tmp_path)
+    write_public_test_module(user_modules_dir)
+
+    client = app.test_client()
+    response = client.get("/publico")
+
+    assert response.status_code == 200
+    assert b"function formatLogTime(createdAt)" in response.data
+    assert b"getHours()" in response.data
+    assert b"getMinutes()" in response.data
+    assert b"getSeconds()" in response.data
+    assert b"toLocaleTimeString" not in response.data
+
+
 def test_module_page_renders_schedule_notice(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

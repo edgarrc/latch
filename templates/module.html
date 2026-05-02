@@ -176,6 +176,15 @@
         }
       }
 
+      function formatLogTime(createdAt) {
+        const parsedDate = createdAt ? new Date(createdAt) : new Date();
+        const date = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const seconds = String(date.getSeconds()).padStart(2, "0");
+        return `${hours}:${minutes}:${seconds}`;
+      }
+
       function appendLog(payload) {
         if (payload.trigger) {
           activeRunTrigger = payload.trigger;
@@ -195,7 +204,7 @@
         const line = document.createElement("div");
         const prefix = payload.plugin ? `[${payload.plugin}] ` : "";
         line.className = `log-${payload.level || "output"}`;
-        const time = payload.created_at ? new Date(payload.created_at).toLocaleTimeString() : new Date().toLocaleTimeString();
+        const time = formatLogTime(payload.created_at);
         line.textContent = `${time} ${prefix}${payload.message}`;
         consoleEl.appendChild(line);
         consoleEl.scrollTop = consoleEl.scrollHeight;
