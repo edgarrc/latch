@@ -1,50 +1,50 @@
 # Latch
 
-Latch é uma aplicação Flask para executar, acompanhar e interromper batches modulares compostos por plugins configuráveis.
+Latch is a Flask application for running, monitoring, and interrupting modular batches made of configurable plugins.
 
-O projeto fornece uma interface web simples para disparar comandos sequenciais por módulo, acompanhar logs em tempo real, evitar execuções concorrentes do mesmo módulo e interromper processos em execução quando necessário.
+The project provides a simple web interface to start sequential commands by module, watch real-time logs, prevent concurrent runs of the same module, and interrupt running processes when needed.
 
-Página oficial: https://github.com/edgarrc/latch
+Official page: https://github.com/edgarrc/latch
 
-## Propósito
+## Purpose
 
-Latch foi criado para centralizar a execução de rotinas batch locais de forma organizada e extensível.
+Latch was created to centralize local batch routines in an organized and extensible way.
 
-Cada módulo define sua própria sequência de plugins em YAML. A aplicação carrega essa configuração, executa os plugins na ordem definida e interrompe o batch caso algum plugin falhe.
+Each module defines its own plugin sequence in YAML. The application loads that configuration, runs plugins in the configured order, and stops the batch if any plugin fails.
 
-Casos de uso típicos:
+Typical use cases:
 
-- orquestrar scripts operacionais;
-- executar rotinas analíticas em sequência;
-- acompanhar logs de comandos longos via navegador;
-- evitar execuções simultâneas acidentais;
-- interromper processos manualmente quando necessário.
+- orchestrating operational scripts;
+- running analytical routines in sequence;
+- watching long-running command logs in the browser;
+- preventing accidental concurrent runs;
+- manually interrupting processes when needed.
 
-## Funcionalidades
+## Features
 
-- Módulos de usuário acessíveis por rota, como `/<id_do_modulo>`.
-- Configuração de plugins por YAML.
-- Criação e edição de módulos pela interface web.
-- Validação de YAML antes de salvar.
-- Variáveis por módulo com placeholders em comandos.
-- Agendamento opcional por módulo usando cron de 5 campos.
-- Suporte a variáveis de ambiente e valores sensíveis mascarados.
-- Execução sequencial de plugins.
-- Plugins `command_line`, `clickhouse_client` e `redis_client` para executar comandos no host.
-- Captura de stdout/stderr em tempo real.
-- Validação por exit code, string de erro e string de sucesso.
-- Lock por módulo usando `filelock`.
-- Logs persistidos da última execução em arquivos temporários do projeto.
-- Limpeza dos logs/metadados temporários de módulos ao iniciar a aplicação.
-- Recuperação do console ao sair e voltar para a página durante uma execução.
-- Execução desacoplada da conexão SSE da página, evitando interrupção do batch por queda/reload do navegador.
-- Status por etapa na página do módulo, com recuperação ao recarregar a tela.
-- Atualização de status/logs por SSE global, sem polling periódico do navegador.
-- Setup inicial com dois usuários fixos: `admin` e `user`.
-- Apenas `admin` pode criar, editar, validar e excluir módulos; `user` pode visualizar o YAML/script do módulo em modo somente leitura.
-- Botão `Clear` para limpar logs quando o módulo está parado.
-- Botão `Kill` para interromper o plugin ativo.
-- UI simples com Bootstrap via CDN.
+- User modules exposed by route, such as `/<module_id>`.
+- YAML-based plugin configuration.
+- Module creation and editing through the web interface.
+- YAML validation before saving.
+- Per-module variables with command placeholders.
+- Optional per-module scheduling with 5-field cron expressions.
+- Environment variable support and masked sensitive values.
+- Sequential plugin execution.
+- `command_line`, `clickhouse_client`, and `redis_client` plugins for running host commands.
+- Real-time stdout/stderr capture.
+- Validation by exit code, error string, and success string.
+- Per-module locking with `filelock`.
+- Persisted logs from the latest run in temporary project files.
+- Temporary module log/metadata cleanup when the application starts.
+- Console recovery after leaving and returning to a page during a run.
+- Batch execution decoupled from the page SSE connection, so browser disconnects or reloads do not interrupt the batch.
+- Per-step status on the module page, restored after page reload.
+- Global SSE status/log invalidation, without periodic browser polling.
+- Initial setup with two fixed users: `admin` and `user`.
+- Only `admin` can create, edit, validate, and delete modules; `user` can view a module YAML/script in read-only mode.
+- `Clear` button to clear logs when the module is stopped.
+- `Kill` button to interrupt the active plugin.
+- Simple Bootstrap-based UI via CDN.
 
 ## Stack
 
@@ -58,90 +58,90 @@ Casos de uso típicos:
 - Bootstrap
 - pytest
 
-## Estrutura
+## Structure
 
 ```text
 .
-├── app.py
-├── modules/
-│   ├── user/
-│   │   └── *.yaml
-│   └── system/
-│       └── *.yaml
-├── plugins/
-│   ├── base.py
-│   ├── clickhouse_client.py
-│   ├── command_line.py
-│   ├── redis_client.py
-│   └── variables.py
-├── templates/
-│   ├── _app_footer.html
-│   ├── _app_header.html
-│   ├── login.html
-│   ├── setup.html
-│   ├── index.html
-│   ├── module_edit.html
-│   └── module.html
-├── locks/
-├── temp/
-├── tests/
-├── uwsgi.ini
-├── requirements.txt
-├── AGENT.md
-└── README.md
++-- app.py
++-- modules/
+|   +-- user/
+|   |   +-- *.yaml
+|   +-- system/
+|       +-- *.yaml
++-- plugins/
+|   +-- base.py
+|   +-- clickhouse_client.py
+|   +-- command_line.py
+|   +-- redis_client.py
+|   +-- variables.py
++-- templates/
+|   +-- _app_footer.html
+|   +-- _app_header.html
+|   +-- login.html
+|   +-- setup.html
+|   +-- index.html
+|   +-- module_edit.html
+|   +-- module.html
++-- locks/
++-- temp/
++-- tests/
++-- uwsgi.ini
++-- requirements.txt
++-- AGENT.md
++-- README.md
 ```
 
-## Autenticação
+## Authentication
 
-Quando `settings.yaml` não existe, a aplicação abre o setup inicial e solicita uma senha para `admin` e outra para `user`.
+When `settings.yaml` does not exist, the application opens the initial setup and asks for one password for `admin` and one for `user`.
 
-O usuário `admin` pode operar batches e também criar, editar, validar e excluir módulos. O usuário `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs quando permitido, solicitar `Kill` e visualizar o YAML/script do módulo em modo somente leitura, com valores `sensitive` mascarados.
+The `admin` user can operate batches and also create, edit, validate, and delete modules. The `user` user can open modules, run batches, watch status/logs, clear logs when allowed, request `Kill`, and view the module YAML/script in read-only mode with `sensitive` values masked.
 
-O arquivo `settings.yaml` guarda apenas hashes das senhas e a chave de sessão da aplicação.
+The `settings.yaml` file stores only password hashes and the application session key.
 
-## Configuração de Módulos
+## Module Configuration
 
-Cada módulo de usuário é definido em `modules/user/<nome>.yaml`. O nome do arquivo, sem `.yaml`, é o ID do módulo e deve conter apenas letras, números, `_` ou `-`.
+Each user module is defined in `modules/user/<name>.yaml`. The filename without `.yaml` is the module ID and must contain only letters, numbers, `_`, or `-`.
 
-Exemplo:
+Example:
 
 ```yaml
-name: Analítico
-description: Executa as etapas analíticas do batch.
+name: Analytics
+description: Runs the analytical batch steps.
 schedule_enabled: true
 schedule: "0 * * * *"
 plugins:
-  - id: preparar_analitico
+  - id: prepare_analytics
     type: command_line
-    description: Prepara o ambiente analítico.
-    command: "echo Preparando modulo analitico"
+    description: Prepares the analytics environment.
+    command: "echo Preparing analytics module"
     error_contains: "ERROR"
-    success_contains: "analitico"
+    success_contains: "analytics"
 
-  - id: processar_analitico_com_sleep
+  - id: process_analytics_with_sleep
     type: command_line
-    description: Processa o batch analítico e valida a conclusão.
-    command: "sleep 30 && echo Batch analitico concluido"
+    description: Processes the analytics batch and validates completion.
+    command: "sleep 30 && echo Analytics batch completed"
     error_contains: "ERROR"
-    success_contains: "concluido"
+    success_contains: "completed"
 ```
 
-Use `description` no módulo para explicar o objetivo geral e em cada plugin para explicar o que a etapa faz.
+Use the module `description` to explain the overall purpose and each plugin `description` to explain what the step does.
 
-Use `schedule` opcionalmente para executar o módulo de forma automática. O valor deve ser uma string cron clássica de 5 campos, como `"0 * * * *"` para executar de hora em hora. Use `schedule_enabled: false` para manter o cron configurado sem executar automaticamente. O cron é interpretado no fuso local do servidor. Se o Latch estiver desligado ou o módulo ainda estiver rodando no horário agendado, a execução perdida não é reposta; o scheduler aguarda o próximo horário.
+Use `schedule` optionally to run the module automatically. The value must be a classic 5-field cron string, such as `"0 * * * *"` to run hourly. Use `schedule_enabled: false` to keep the cron configured without running it automatically. The cron is interpreted in the server local timezone. If Latch is down or the module is still running at the scheduled time, the missed run is not replayed; the scheduler waits for the next calculated time.
 
-Módulos agendados continuam permitindo execução manual quando estão parados. Durante uma execução agendada, a página do módulo usa os mesmos controles de uma execução manual: `Executar` e `Clear` ficam bloqueados, `Kill` continua disponível e o console pode ser reaberto acompanhando os logs persistidos.
+Scheduled modules still allow manual execution when stopped. During a scheduled run, the module page uses the same controls as a manual run: `Run` and `Clear` are disabled, `Kill` remains available, and the console can be reopened while following persisted logs.
 
-Cada plugin pode definir `timeout` e `timeout_retries`. `timeout` é opcional, em segundos inteiros positivos; quando ausente, a etapa espera indefinidamente. Se o timeout expirar, o Latch chama o `kill()` do plugin ativo. `timeout_retries` é opcional, inteiro não negativo, e só tem efeito quando `timeout` também está preenchido; `timeout_retries: 1` significa uma tentativa inicial e mais um retry. Se todas as tentativas expirarem, a etapa falha e o batch é interrompido.
+Each plugin can define `timeout` and `timeout_retries`. `timeout` is optional, in positive integer seconds; when absent, the step waits indefinitely. If the timeout expires, Latch calls `kill()` on the active plugin. `timeout_retries` is optional, a non-negative integer, and only applies when `timeout` is set; `timeout_retries: 1` means the initial attempt plus one retry. If all attempts time out, the step fails and the batch is interrupted.
 
-### Variáveis de Módulo
+### Module Variables
 
-Um módulo pode declarar `variables:` para reutilizar valores nos comandos. O comando usa placeholders no formato `{nome_da_variavel}`.
+A module can declare `variables:` to reuse values in commands. Commands use placeholders in the `{variable_name}` format.
 
-Exemplo:
+Example:
 
 ```yaml
-name: Analítico
+name: Analytics
 variables:
   database:
     type: string
@@ -153,105 +153,103 @@ variables:
     type: sensitive
     value: $CLICKHOUSE_PASSWORD
 plugins:
-  - id: consultar_clickhouse
+  - id: query_clickhouse
     type: command_line
-    command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM eventos LIMIT {batch_limit}'"
+    command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM events LIMIT {batch_limit}'"
     error_contains: "ERROR"
 ```
 
-Exemplo 2:
+Example 2:
 
 ```yaml
-name: Módulo de exemplo
-description: Demonstra variáveis string, integer e sensitive em comandos.
+name: Example module
+description: Demonstrates string, integer, and sensitive variables in commands.
 variables:
-  nome_rotina:
+  routine_name:
     type: string
-    value: analitico
-  limite_linhas:
+    value: analytics
+  row_limit:
     type: integer
     value: 1000
-  senha_demo:
+  demo_password:
     type: sensitive
-    value: segredo_analitico_demo
+    value: demo_analytics_secret
 plugins:
-- id: echo_variavel_string
+- id: echo_string_variable
   type: command_line
-  description: Exibe uma variável textual substituída no comando.
-  command: 'echo Variavel string: {nome_rotina}'
+  description: Prints a substituted text variable.
+  command: 'echo String variable: {routine_name}'
   error_contains: ERROR
-  success_contains: analitico
-- id: echo_variavel_integer
+  success_contains: analytics
+- id: echo_integer_variable
   type: command_line
-  description: Exibe uma variável inteira substituída no comando.
-  command: 'echo Variavel integer: {limite_linhas}'
+  description: Prints a substituted integer variable.
+  command: 'echo Integer variable: {row_limit}'
   error_contains: ERROR
   success_contains: '1000'
-- id: echo_variavel_sensitive
+- id: echo_sensitive_variable
   type: command_line
-  description: Executa comando com variável sensível mascarada nos logs.
-  command: 'echo Variavel sensitive: {senha_demo}'
+  description: Runs a command with a sensitive variable masked in logs.
+  command: 'echo Sensitive variable: {demo_password}'
   error_contains: ERROR
-  success_contains: segredo_analitico_demo
+  success_contains: demo_analytics_secret
 - id: sleep
   type: command_line
-  description: Simula uma etapa longa 10s.
+  description: Simulates a long 10-second step.
   command: sleep 10
   error_contains: null
   success_contains: null
 - id: sleep2
   type: command_line
-  description: Simula uma segunda etapa longa.
+  description: Simulates a second long step.
   command: sleep 10
   error_contains: null
   success_contains: null
 ```
 
-Tipos suportados:
+Supported types:
 
-- `string`: valor textual.
-- `integer`: valor inteiro, aceitando inteiro no YAML ou texto numérico.
-- `sensitive`: valor textual que não deve aparecer em logs, metadados ou console.
+- `string`: text value.
+- `integer`: integer value, accepting either a YAML integer or numeric text.
+- `sensitive`: text value that must not appear in logs, metadata, or the console.
 
-Quando `value` estiver no formato `$NOME_ENV`, a aplicação resolve o valor a partir da variável de ambiente `NOME_ENV` no momento da execução. Se a variável de ambiente não existir, o plugin falha antes de iniciar o comando.
+When `value` uses the `$ENV_NAME` format, the application resolves the value from the `ENV_NAME` environment variable at execution time. If the environment variable does not exist, the plugin fails before starting the command.
 
-Regras importantes:
+Important rules:
 
-- Variáveis são declaradas no escopo do módulo e podem ser usadas pelos plugins do módulo.
-- Nomes de variáveis devem começar com letra ou `_` e conter apenas letras, números e `_`.
-- Placeholders sem variável configurada fazem a execução falhar antes do comando iniciar.
-- Em comandos string, valores substituídos são escapados com `shlex.quote` antes de executar com `shell=True`.
-- Em comandos lista, cada item é executado como argumento direto, sem shell.
-- Valores `sensitive` são substituídos por `****` nos logs e metadados. O mascaramento é literal: se um processo externo transformar o segredo, por exemplo usando hash ou encoding, essa transformação não é inferida.
-- Para usar chaves literais em um comando quando `variables:` estiver configurado, escape como `{{` e `}}`.
+- Variables are declared in module scope and can be used by that module's plugins.
+- Variable names must start with a letter or `_` and contain only letters, numbers, and `_`.
+- Placeholders without a configured variable make execution fail before the command starts.
+- In string commands, substituted values are escaped with `shlex.quote` before execution with `shell=True`.
+- In list commands, each item is executed as a direct argument, without shell interpretation.
+- `sensitive` values are replaced with `****` in logs and metadata. Masking is literal: if an external process transforms a secret, for example by hashing or encoding it, that transformation is not inferred.
+- To use literal braces in a command when `variables:` is configured, escape them as `{{` and `}}`.
 
 ### Plugins
 
 #### `command_line`
 
-Executa um comando direto ou via shell, conforme o tipo de `command`.
-Opcionalmente, `pipeline` conecta a saída do comando principal a um shell raw no
-lado direito do pipe, executado com Bash `pipefail`.
+Runs a direct or shell command depending on the `command` type. Optionally, `pipeline` connects the main command output to a raw shell command on the right side of the pipe, executed with Bash `pipefail`.
 
 ```yaml
 plugins:
-  - id: executar_script
+  - id: run_script
     type: command_line
     command:
       - /usr/bin/python3
-      - /opt/scripts/rotina.py
-    pipeline: "grep concluido"
+      - /opt/scripts/routine.py
+    pipeline: "grep completed"
     error_contains: ERROR
-    success_contains: concluido
+    success_contains: completed
 ```
 
 #### `clickhouse_client`
 
-Executa `/usr/bin/clickhouse-client` com argumentos montados pela aplicação. O campo `query` é obrigatório. `user`, `password`, `database` e `pipeline` são opcionais. A senha é sempre mascarada em logs e metadados, mesmo quando não vier de uma variável `sensitive`.
+Runs `/usr/bin/clickhouse-client` with arguments assembled by the application. The `query` field is required. `user`, `password`, `database`, and `pipeline` are optional. The password is always masked in logs and metadata, even when it does not come from a `sensitive` variable.
 
 ```yaml
 plugins:
-  - id: consultar_clickhouse
+  - id: query_clickhouse
     type: clickhouse_client
     user: "{clickhouse_user}"
     password: "{clickhouse_password}"
@@ -262,18 +260,17 @@ plugins:
     success_contains: null
 ```
 
-Sem `pipeline`, o comando final é executado sem shell:
+Without `pipeline`, the final command runs without a shell:
 
 ```text
 /usr/bin/clickhouse-client --user ... --password ... --database ... --query ...
 ```
 
-Com `pipeline`, o comando é conectado ao lado direito informado e executado via
-`/bin/bash -o pipefail -c`, falhando se qualquer etapa do pipeline falhar.
+With `pipeline`, the command is connected to the configured right side and executed through `/bin/bash -o pipefail -c`, failing if any pipeline step fails.
 
 #### `redis_client`
 
-Executa `/usr/bin/redis-cli` com host e argumentos definidos pela configuração. O campo `host` é opcional. O campo `args` é obrigatório e pode ser lista de argumentos ou uma string interpretada com `shlex.split`. O campo `pipeline` é opcional e representa o shell raw à direita do pipe.
+Runs `/usr/bin/redis-cli` with host and arguments defined by the configuration. The `host` field is optional. The `args` field is required and can be an argument list or a string parsed with `shlex.split`. The `pipeline` field is optional and represents the raw shell command on the right side of the pipe.
 
 ```yaml
 plugins:
@@ -289,126 +286,123 @@ plugins:
     success_contains: null
 ```
 
-Sem `pipeline`, o comando final é executado sem shell:
+Without `pipeline`, the final command runs without a shell:
 
 ```text
 /usr/bin/redis-cli -h <host> <args...>
 ```
 
-Com `pipeline`, o comando montado é convertido para shell com `shlex.join(...)` e
-conectado ao `pipeline`. O `host` do `redis_client` não é propagado
-automaticamente para esse lado direito; informe-o explicitamente no `pipeline`
-quando necessário.
+With `pipeline`, the assembled command is converted to shell text with `shlex.join(...)` and connected to `pipeline`. The `redis_client` `host` is not propagated automatically to that right side; provide it explicitly in `pipeline` when needed.
 
-## Executando Localmente
+## Running Locally
 
-Crie e ative um ambiente virtual:
+Create and activate a virtual environment:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-Instale as dependências:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Inicie a aplicação:
+Start the application:
 
 ```bash
 flask --app app run
 
-#OU
+# OR
 
 flask --app app run --host 0.0.0.0 --port 5000
 ```
 
-Acesse:
+Open:
 
 ```text
 http://127.0.0.1:5000
 ```
 
-## Executando em Produção com uWSGI
+## Running In Production With uWSGI
 
-Instale as dependências no ambiente virtual:
+Install dependencies in the virtual environment:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Inicie a aplicação com uWSGI, com o ambiente virtual ativado:
+Start the application with uWSGI, with the virtual environment activated:
 
 ```bash
 uwsgi --ini uwsgi.ini
 ```
 
-Sem ativar o ambiente virtual, use:
+Without activating the virtual environment, use:
 
 ```bash
 venv/bin/uwsgi --ini uwsgi.ini
 ```
 
-O arquivo `uwsgi.ini` expõe o Latch em `0.0.0.0:5000` via HTTP direto e usa um único processo com threads habilitadas. Essa configuração é intencional: o scheduler embutido deve existir em apenas um processo, e o `Kill` depende do estado em memória do processo que iniciou o plugin ativo. Como as conexões SSE permanecem abertas enquanto a página está ativa, o pool de threads deve ter folga para atender SSEs longos e requisições curtas ao mesmo tempo.
+The `uwsgi.ini` file exposes Latch on `0.0.0.0:5000` over direct HTTP and uses a single process with threads enabled. This configuration is intentional: the embedded scheduler must exist in only one process, and `Kill` depends on the in-memory state of the process that started the active plugin. Because SSE connections remain open while the page is active, the thread pool must have room for long-lived SSEs and short requests at the same time.
 
-Execuções longas não dependem da conexão do navegador permanecer aberta. O batch roda em uma thread desacoplada, grava status/logs em `temp/` e pode ser acompanhado depois ao reabrir a página do módulo. As conexões SSE enviam heartbeat para evitar encerramento por ociosidade quando um plugin fica muito tempo sem emitir output, e o `uwsgi.ini` usa timeouts de 7 dias para comportar acompanhamentos longos.
+Long runs do not depend on the browser connection staying open. The batch runs in a detached thread, writes status/logs to `temp/`, and can be followed later by reopening the module page. SSE connections send heartbeats to avoid idle termination when a plugin spends a long time without emitting output, and `uwsgi.ini` uses 7-day timeouts to support long follow-up sessions.
 
-Quando uma aba é recarregada, fechada ou perde a conexão durante `/api/events`, o uWSGI pode tentar escrever no socket depois do cliente desconectar. O `uwsgi.ini` mantém `ignore-sigpipe`, `ignore-write-errors` e `disable-write-exception` habilitados para evitar que esse encerramento esperado de SSE polua o log com `Broken pipe` / `OSError: write error`.
+When a tab is reloaded, closed, or loses the connection during `/api/events`, uWSGI may try to write to the socket after the client disconnects. `uwsgi.ini` keeps `ignore-sigpipe`, `ignore-write-errors`, and `disable-write-exception` enabled to prevent this expected SSE termination from polluting logs with `Broken pipe` / `OSError: write error`.
 
-Para atividades de vários dias, mantenha o processo uWSGI estável: não use reinícios automáticos por tempo, `max-requests`, `harakiri` ou deploy com múltiplos processos enquanto uma execução estiver ativa. Se o processo uWSGI for encerrado ou recarregado, o Latch perde o estado em memória necessário para monitorar e interromper o plugin ativo.
+For multi-day work, keep the uWSGI process stable: do not use time-based automatic restarts, `max-requests`, `harakiri`, or multi-process deployments while a run is active. If the uWSGI process is stopped or reloaded, Latch loses the in-memory state needed to monitor and interrupt the active plugin.
 
-Para este modelo de deploy, não aumente `processes`. Se precisar colocar Nginx ou outro proxy na frente, mantenha o uWSGI com `processes = 1`, `enable-threads = true` e ajuste apenas a forma de exposição HTTP/socket.
+For this deployment model, do not increase `processes`. If Nginx or another proxy is placed in front, keep uWSGI with `processes = 1`, `enable-threads = true`, and adjust only the HTTP/socket exposure.
 
-## Testes
+## Tests
 
 ```bash
 pytest
 ```
 
-## Extensibilidade
+## Extensibility
 
-Novos plugins devem herdar de `BasePlugin` e implementar:
+New plugins must inherit from `BasePlugin` and implement:
 
-- `_run_once()`: executa uma tentativa do plugin e emite eventos de log.
-- `kill()`: interrompe a execução ativa do plugin.
+- `_run_once()`: runs one plugin attempt and emits log events.
+- `kill()`: interrupts the active plugin execution.
 
-O método público `run()` é fornecido por `BasePlugin` e aplica a lógica comum de `timeout` e `timeout_retries`.
+The public `run()` method is provided by `BasePlugin` and applies the shared `timeout` and `timeout_retries` logic.
 
-O contrato completo e as regras de arquitetura estão documentados em `AGENT.md`.
+The full contract and architecture rules are documented in `AGENT.md`.
 
-## Edição de Módulos
+## Module Editing
 
-A página principal possui o botão `Adicionar` e cada linha possui `Editar` apenas para o usuário `admin`. Para `user`, a linha mostra `Ver script`, abrindo o YAML do módulo em modo somente leitura.
+The main page has an `Add module` button, and each row has `Edit` only for the `admin` user. For `user`, the row shows `View script`, opening the module YAML in read-only mode.
 
-A tela de edição trabalha com YAML bruto e oferece:
+The edit screen works with raw YAML and offers:
 
-- `Validate`: valida sintaxe YAML, campos obrigatórios, tipos de plugin, variáveis e placeholders sem persistir e sem reformatar o conteúdo.
-- `Salvar`: valida novamente e grava o YAML bruto em `modules/user/<nome>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados no editor.
-- `Excluir`: remove o YAML do módulo e arquivos temporários relacionados.
+- `Validate`: validates YAML syntax, required fields, plugin types, variables, and placeholders without persisting and without reformatting the content.
+- `Save`: validates again and writes the raw YAML to `modules/user/<name>.yaml`, preserving literal blocks, quotes, spacing, and order entered in the editor.
+- `Delete`: removes the module YAML and related temporary files.
 
-Criação, validação, salvamento e exclusão são ações exclusivas do `admin`. O usuário `user` pode visualizar o YAML, mas não valida nem altera a configuração. O salvamento e a exclusão de um módulo em execução são bloqueados para evitar mudança de configuração durante o batch.
+Creation, validation, saving, and deletion are exclusive to `admin`. The `user` account can view YAML but cannot validate or change configuration. Saving and deleting a running module are blocked to avoid changing configuration during a batch.
 
-## Status das Etapas
+## Step Statuses
 
-Na página do módulo, cada plugin aparece com um status individual:
+On the module page, each plugin appears with an individual status:
 
-- `Não iniciado`: antes da execução ou após limpar os logs.
-- `Enfileirado`: etapa futura dentro do batch atual.
-- `Executando`: etapa ativa.
-- `Concluído`: etapa finalizada com sucesso.
-- `Falhou`: etapa que interrompeu o batch por erro.
-- `Interrompido`: etapa ativa quando o usuário solicitou `Kill`.
+- `Not started`: before a run or after clearing logs.
+- `Queued`: future step in the current batch.
+- `Running`: active step.
+- `Completed`: step finished successfully.
+- `Failed`: step that interrupted the batch with an error.
+- `Interrupted`: active step when the user requested `Kill`.
 
-Timeout esgotado é tratado como falha operacional: a etapa aparece como `Falhou`.
+An exhausted timeout is handled as an operational failure: the step appears as `Failed`.
 
-Esses estados são reconstruídos pelos eventos persistidos da execução, então continuam aparecendo corretamente ao recarregar a página durante ou após um batch.
+These states are reconstructed from persisted run events, so they continue to appear correctly after reloading the page during or after a batch.
 
-## Observações de Segurança
+## Security Notes
 
-Os plugins de execução rodam comandos no host. Portanto, os arquivos YAML devem ser tratados como configuração confiável.
+Execution plugins run commands on the host. YAML files must therefore be treated as trusted configuration.
 
-Use `sensitive` para senhas, tokens e segredos. Não coloque segredos diretamente em `string` ou `integer`, pois esses valores podem aparecer nos logs.
+Use `sensitive` for passwords, tokens, and secrets. Do not put secrets directly in `string` or `integer`, because those values may appear in logs.
 
-Não exponha esta aplicação publicamente sem autenticação, autorização e revisão de segurança adequadas.
+Do not expose this application publicly without appropriate authentication, authorization, and security review.

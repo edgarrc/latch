@@ -1,62 +1,62 @@
 # AGENT.md
 
-## Propósito do Projeto
+## Project Purpose
 
-Este projeto se chama Latch e implementa, em Python/Flask, um gerenciador de comandos batch modular para executar, acompanhar, interromper e limpar execuções sequenciais de plugins configurados por módulo.
+This project is called Latch. It implements, in Python/Flask, a modular batch command manager for running, monitoring, interrupting, and clearing sequential plugin executions configured by module.
 
-O objetivo é fornecer uma base reutilizável para orquestrar batches locais por módulos, com UI simples, logs em tempo real, persistência da última execução e controle seguro de concorrência por módulo.
+The goal is to provide a reusable base for orchestrating local module-based batches, with a simple UI, real-time logs, persisted latest-run state, and safe per-module concurrency control.
 
-Este documento deve ser usado por ferramentas de IA e agentes de desenvolvimento como fonte de contexto do projeto. Toda nova funcionalidade, regra de negócio, mudança arquitetural ou padrão relevante deve ser refletido aqui. O `AGENT.md` deve ser mantido atualizado junto com o código.
+This document must be used by AI tools and development agents as the project context source. Every new feature, business rule, architectural change, or relevant pattern must be reflected here. `AGENT.md` must be kept up to date with the code.
 
-## Regras Operacionais do Repositório
+## Repository Operating Rules
 
-- Antes de executar qualquer comando que interaja com arquivos fora da pasta atual do projeto, seja leitura ou escrita, peça autorização explícita ao usuário.
-- Use `rg`/`rg --files` para busca e inspeção sempre que possível.
-- Use `apply_patch` para criar ou editar arquivos manualmente.
-- Não reverta alterações existentes sem pedido explícito do usuário.
-- Não execute testes, Python, shell externo ou ferramentas que possam ler bibliotecas/arquivos fora do projeto sem autorização explícita.
+- Before running any command that interacts with files outside the current project folder, for either reading or writing, ask the user for explicit permission.
+- Use `rg`/`rg --files` for search and inspection whenever possible.
+- Use `apply_patch` to create or edit files manually.
+- Do not revert existing changes without an explicit user request.
+- Do not run tests, Python, external shell tools, or tools that may read libraries/files outside the project without explicit permission.
 
-## Arquitetura
+## Architecture
 
-Estrutura principal:
+Main structure:
 
-- `app.py`: entrypoint Flask, rotas HTTP, execução batch, locking, logs persistidos e controle de execução ativa.
-- `modules/user/`: configurações YAML dos módulos criados pelo usuário.
-- `modules/system/`: módulos internos usados por desenvolvimento e testes automatizados.
-- `plugins/`: implementação dos tipos de plugin.
-- `plugins/variables.py`: validação, resolução, substituição e mascaramento de variáveis de módulo usadas por comandos.
-- `templates/`: UI HTML com Bootstrap CDN e JavaScript simples.
-- `templates/_app_header.html` e `templates/_app_footer.html`: marca discreta e rodapé oficial compartilhados pelas páginas.
-- `settings.yaml`: configuração local de autenticação com hashes dos usuários fixos `admin` e `user`.
-- `uwsgi.ini`: configuração de produção uWSGI HTTP direto para uso single-process com threads.
-- `locks/`: arquivos de lock por módulo usando `filelock`.
-- `temp/`: logs e metadados temporários da execução, ignorados pelo Git.
-- `tests/`: testes de contrato e comportamento.
+- `app.py`: Flask entrypoint, HTTP routes, batch execution, locking, persisted logs, and active execution control.
+- `modules/user/`: YAML configurations for modules created by the user.
+- `modules/system/`: internal modules used by development and automated tests.
+- `plugins/`: implementation of plugin types.
+- `plugins/variables.py`: validation, resolution, substitution, and masking of module variables used by commands.
+- `templates/`: HTML UI with Bootstrap CDN and simple JavaScript.
+- `templates/_app_header.html` and `templates/_app_footer.html`: shared discreet branding and official footer.
+- `settings.yaml`: local authentication configuration with password hashes for the fixed `admin` and `user` accounts.
+- `uwsgi.ini`: production uWSGI configuration, exposing HTTP directly for single-process usage with threads.
+- `locks/`: per-module lock files using `filelock`.
+- `temp/`: temporary execution logs and metadata, ignored by Git.
+- `tests/`: contract and behavior tests.
 
-Módulos de usuário:
+User modules:
 
-- Todo arquivo válido em `modules/user/<module>.yaml` é descoberto automaticamente.
-- O ID do módulo é o nome do arquivo sem `.yaml` e deve conter apenas letras, números, `_` ou `-`.
-- Cada módulo é exposto em `/<module>`.
+- Every valid file in `modules/user/<module>.yaml` is discovered automatically.
+- The module ID is the filename without `.yaml` and must contain only letters, numbers, `_`, or `-`.
+- Each module is exposed at `/<module>`.
 
-Configuração de módulo:
+Module configuration:
 
-- Cada módulo de usuário possui um YAML em `modules/user/<module>.yaml`.
-- O YAML define `name`, opcionalmente `description`, opcionalmente `schedule`, opcionalmente `variables`, e a lista ordenada `plugins`.
-- `schedule` é uma string opcional no formato cron clássico de 5 campos, por exemplo `"0 * * * *"` para executar de hora em hora.
-- `schedule_enabled` é booleano opcional. Quando ausente, um módulo com `schedule` continua habilitado por compatibilidade; quando `false`, o cron fica configurado, mas não dispara.
-- `schedule` vazio, ausente ou `null` deixa o módulo sem agendamento ativo.
-- Cada plugin pode declarar `description` textual para explicar a etapa.
-- Cada plugin pode declarar `timeout` em segundos inteiros positivos e `timeout_retries` como inteiro não negativo.
-- `timeout` ausente ou `null` significa espera indefinida; `timeout_retries` só tem efeito quando `timeout` está preenchido.
-- `timeout_retries` representa retries extras: `timeout_retries: 1` executa a tentativa inicial e mais um retry.
-- A ordem da lista é a ordem exata de execução.
+- Each user module has a YAML file in `modules/user/<module>.yaml`.
+- YAML defines `name`, optional `description`, optional `schedule`, optional `variables`, and the ordered `plugins` list.
+- `schedule` is an optional classic 5-field cron string, for example `"0 * * * *"` to run hourly.
+- `schedule_enabled` is an optional boolean. When absent, a module with `schedule` remains enabled for compatibility; when `false`, the cron stays configured but does not fire.
+- Empty, missing, or `null` `schedule` leaves the module without active scheduling.
+- Each plugin can declare a text `description` to explain the step.
+- Each plugin can declare `timeout` as a positive integer number of seconds and `timeout_retries` as a non-negative integer.
+- Missing or `null` `timeout` means wait indefinitely; `timeout_retries` only applies when `timeout` is set.
+- `timeout_retries` represents extra retries: `timeout_retries: 1` runs the initial attempt plus one retry.
+- The list order is the exact execution order.
 
-Exemplo:
+Example:
 
 ```yaml
-name: Analítico
-description: Executa consulta analítica no ClickHouse.
+name: Analytics
+description: Runs an analytical ClickHouse query.
 schedule_enabled: true
 schedule: "0 * * * *"
 variables:
@@ -70,160 +70,156 @@ variables:
     type: sensitive
     value: $CLICKHOUSE_PASSWORD
 plugins:
-  - id: processar_analitico
+  - id: process_analytics
     type: command_line
-    description: Consulta eventos analíticos respeitando o limite configurado.
-    command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM eventos LIMIT {batch_limit}'"
+    description: Queries analytical events while respecting the configured limit.
+    command: "clickhouse-client --database {database} --password {clickhouse_password} --query 'SELECT * FROM events LIMIT {batch_limit}'"
     error_contains: "ERROR"
 ```
 
-Variáveis de módulo:
+Module variables:
 
-- `variables` é opcional e tem escopo por módulo.
-- Cada variável deve usar o formato explícito `{type, value}`.
-- Tipos suportados: `string`, `integer` e `sensitive`.
-- `string` e `sensitive` exigem valor textual; `integer` aceita inteiro YAML ou texto numérico.
-- Valores no formato `$NOME_ENV` são resolvidos a partir do ambiente no momento da criação do plugin.
-- Variável de ambiente ausente falha antes de iniciar o comando.
-- Nomes de variáveis e placeholders devem seguir `^[A-Za-z_][A-Za-z0-9_]*$`.
-- Placeholders desconhecidos falham antes de iniciar o comando.
-- Placeholders podem ser usados nos campos executáveis dos plugins `command_line`, `clickhouse_client` e `redis_client`.
-- Valores `sensitive` nunca devem aparecer em logs, console, SSE, JSON persistido ou metadados ativos; devem ser mascarados como `****`.
-- O mascaramento é literal sobre o valor sensível resolvido. Transformações feitas por processos externos, como hash ou encoding, não são inferidas.
+- `variables` is optional and scoped to the module.
+- Each variable must use the explicit `{type, value}` format.
+- Supported types: `string`, `integer`, and `sensitive`.
+- `string` and `sensitive` require a text value; `integer` accepts either a YAML integer or numeric text.
+- Values in the `$ENV_NAME` format are resolved from the environment when the plugin is created.
+- A missing environment variable fails before the command starts.
+- Variable names and placeholders must follow `^[A-Za-z_][A-Za-z0-9_]*$`.
+- Unknown placeholders fail before the command starts.
+- Placeholders can be used in executable fields of the `command_line`, `clickhouse_client`, and `redis_client` plugins.
+- `sensitive` values must never appear in logs, console output, SSE, persisted JSON, or active metadata; they must be masked as `****`.
+- Masking is literal against the resolved sensitive value. Transformations done by external processes, such as hashing or encoding, are not inferred.
 
-## Regras de Negócio
+## Business Rules
 
-- O batch é executado sequencialmente, um plugin por vez.
-- Se um plugin falhar, os próximos plugins não são executados.
-- O lock é por módulo, não global.
-- Um módulo em execução bloqueia nova execução simultânea do mesmo módulo.
-- Módulos diferentes podem executar em paralelo.
-- O scheduler interno dispara módulos com `schedule` usando o mesmo caminho de execução desacoplada usado pela interface.
-- `schedule_enabled: false` impede o disparo automático mesmo quando `schedule` está preenchido.
-- O cron de `schedule` usa o fuso local do servidor.
-- Se o app estiver desligado ou o módulo estiver ocupado no horário agendado, a execução perdida não é reposta; o próximo horário do cron é calculado normalmente.
-- Módulos agendados podem ser executados manualmente quando estão parados.
-- A página principal lista módulos em formato tabular, com status em coluna própria.
-- O setup inicial cria senhas para os usuários fixos `admin` e `user`.
-- `admin` pode criar, editar, validar e excluir módulos.
-- `user` pode abrir módulos, executar batches, acompanhar status/logs, limpar logs, solicitar `Kill` e visualizar o YAML/script do módulo em modo somente leitura, com valores `sensitive` mascarados.
-- A página principal permite adicionar módulos e editar módulos existentes apenas para `admin`; para `user`, a ação de script abre a tela do módulo em modo somente leitura.
-- A página do módulo mostra plugins configurados em ordem, status por etapa, console, status geral e ações.
-- A página do módulo informa quando o módulo possui `schedule` e mostra a próxima execução calculada quando disponível.
-- Durante uma execução agendada em andamento, a página deve funcionar como uma execução manual reaberta: console, status por etapa, `Kill`, bloqueio de `Executar` e bloqueio de `Clear` usam o mesmo estado persistido.
-- A tela de edição usa YAML bruto e oferece `Validate`, `Save` e exclusão para `admin`; para `user`, a mesma tela funciona apenas como visualização readonly do YAML.
-- `Validate` verifica sintaxe YAML, schema, tipo do plugin, variáveis, placeholders e instanciação do plugin sem executar comandos e sem normalizar/reformatar o YAML enviado.
-- `Save` valida novamente e persiste o YAML bruto enviado em `modules/user/<module>.yaml`, preservando blocos literais, aspas, espaçamento e ordem informados pelo usuário. É bloqueado enquanto o módulo está em execução.
-- A exclusão remove `modules/user/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json` e `locks/<module>.lock`, e é bloqueada enquanto o módulo está em execução.
-- Status por etapa:
-  - `Não iniciado`: estado inicial da tela, antes de uma execução ou depois de limpar logs.
-  - `Enfileirado`: etapa futura dentro da execução atual.
-  - `Executando`: etapa ativa.
-  - `Concluído`: etapa finalizada com sucesso.
-  - `Falhou`: etapa que encerrou o batch por erro.
-  - `Interrompido`: etapa ativa quando o batch foi morto pelo usuário.
-- O console deve mostrar logs em tempo real e também recuperar a saída da última execução persistida.
-- Se o usuário sair da página e voltar durante uma execução, o console deve continuar mostrando a saída já gerada e seguir acompanhando novos logs.
-- `Clear` apaga o log da última execução apenas se o módulo não estiver em execução.
-- `Kill` interrompe o plugin atualmente em execução e encerra o batch como `killed`.
-- Timeout de plugin chama o `kill()` do plugin ativo; se todas as tentativas expirarem, a etapa encerra como `Falhou` e o batch como `failed`.
+- A batch runs sequentially, one plugin at a time.
+- If a plugin fails, subsequent plugins are not run.
+- The lock is per module, not global.
+- A running module blocks another simultaneous run of the same module.
+- Different modules can run in parallel.
+- The internal scheduler fires modules with `schedule` through the same detached execution path used by the interface.
+- `schedule_enabled: false` prevents automatic execution even when `schedule` is filled.
+- The `schedule` cron uses the server local timezone.
+- If the app is down or the module is busy at the scheduled time, the missed run is not replayed; the next cron time is calculated normally.
+- Scheduled modules can be run manually when stopped.
+- The main page lists modules in a table and includes a dedicated status column.
+- Initial setup creates passwords for the fixed `admin` and `user` accounts.
+- `admin` can create, edit, validate, and delete modules.
+- `user` can open modules, run batches, watch status/logs, clear logs, request `Kill`, and view the module YAML/script in read-only mode with `sensitive` values masked.
+- The main page lets only `admin` add modules and edit existing modules; for `user`, the script action opens the module screen in read-only mode.
+- The module page shows configured plugins in order, per-step status, console, overall status, and actions.
+- The module page indicates when the module has `schedule` and shows the calculated next run when available.
+- During a scheduled run, the page must behave like a reopened manual run: console, per-step status, `Kill`, `Run` blocking, and `Clear` blocking use the same persisted state.
+- The edit screen uses raw YAML and offers `Validate`, `Save`, and deletion for `admin`; for `user`, the same screen works only as a read-only YAML view.
+- `Validate` checks YAML syntax, schema, plugin type, variables, placeholders, and plugin instantiation without executing commands and without normalizing/reformatting the submitted YAML.
+- `Save` validates again and persists the submitted raw YAML in `modules/user/<module>.yaml`, preserving literal blocks, quotes, spacing, and order entered by the user. It is blocked while the module is running.
+- Deletion removes `modules/user/<module>.yaml`, `temp/temp_<module>.jsonl`, `temp/active_<module>.json`, and `locks/<module>.lock`, and is blocked while the module is running.
+- Per-step statuses:
+  - `Not started`: initial screen state, before a run or after clearing logs.
+  - `Queued`: future step in the current run.
+  - `Running`: active step.
+  - `Completed`: step finished successfully.
+  - `Failed`: step that stopped the batch with an error.
+  - `Interrupted`: active step when the batch was killed by the user.
+- The console must show real-time logs and also recover the persisted latest-run output.
+- If the user leaves the page and returns during a run, the console must keep showing already generated output and continue following new logs.
+- `Clear` deletes the latest-run log only if the module is not running.
+- `Kill` interrupts the currently running plugin and ends the batch as `killed`.
+- Plugin timeout calls `kill()` on the active plugin; if all attempts expire, the step ends as `Failed` and the batch as `failed`.
 
 ## Plugins
 
-Todo plugin deve herdar de `BasePlugin`.
+Every plugin must inherit from `BasePlugin`.
 
-Contrato base:
+Base contract:
 
-- `run() -> Iterator[PluginEvent]`: método público fornecido por `BasePlugin`, aplica `timeout`/`timeout_retries` e emite eventos de log.
-- `_run_once() -> Iterator[PluginEvent]`: executa uma tentativa do plugin e emite eventos de log.
-- `kill() -> None`: interrompe a execução ativa do plugin.
-- `set_runtime_context(...)`: recebe contexto de módulo/run e callback para atualizar metadados de execução.
+- `run() -> Iterator[PluginEvent]`: public method provided by `BasePlugin`, applies `timeout`/`timeout_retries`, and emits log events.
+- `_run_once() -> Iterator[PluginEvent]`: runs one plugin attempt and emits log events.
+- `kill() -> None`: interrupts the active plugin execution.
+- `set_runtime_context(...)`: receives module/run context and a callback for updating execution metadata.
 
-Erros padronizados:
+Standard errors:
 
-- `PluginExecutionError`: falha normal do plugin.
-- `PluginKillError`: falha ao tentar interromper o plugin.
-- `PluginKilledError`: plugin interrompido por solicitação do usuário.
+- `PluginExecutionError`: normal plugin failure.
+- `PluginKillError`: failure while trying to interrupt a plugin.
+- `PluginKilledError`: plugin interrupted by user request.
 
-Novos tipos de plugin devem:
+New plugin types must:
 
-- Implementar `_run_once()`.
-- Implementar `kill()`.
-- Emitir logs claros.
-- Registrar metadados úteis via `update_runtime_metadata()`, quando aplicável.
-- Encerrar recursos/processos no `finally`.
+- Implement `_run_once()`.
+- Implement `kill()`.
+- Emit clear logs.
+- Record useful metadata through `update_runtime_metadata()` when applicable.
+- Close resources/processes in `finally`.
 
 ## Plugin `command_line`
 
-O tipo `command_line` executa comandos no shell do host usando `subprocess`.
+The `command_line` type runs host shell commands using `subprocess`.
 
-Regras:
+Rules:
 
-- `command` pode ser string ou lista de strings.
-- String usa `shell=True`.
-- Lista usa execução direta.
-- `pipeline` é opcional e deve ser string não vazia quando informado.
-- Com `pipeline`, o comando principal é conectado por pipe ao shell raw definido em
-  `pipeline` e executado via `/bin/bash -o pipefail -c`, com `shell=False`.
-- Em pipeline, comando principal em lista é convertido com `shlex.join(...)`; comando
-  principal string é usado como está.
-- `pipeline` é controlado integralmente pelo YAML: wrappers como `redis_client` não
-  propagam `host`, senha ou outros campos automaticamente para o lado direito do pipe.
-- Se o módulo tiver `variables`, placeholders `{variavel}` são substituídos antes do `subprocess`.
-- Em comando string, valores substituídos são escapados com `shlex.quote`.
-- Em comando lista, valores substituídos viram texto dentro do argumento correspondente, sem shell quoting.
-- Em `pipeline`, valores substituídos são escapados com `shlex.quote`, pois o campo é shell raw.
-- Logs de comando iniciado e metadados usam a versão mascarada do comando.
-- Quando `pipeline` está configurado, logs e metadados registram o comando mascarado completo
-  no formato `<comando> | <pipeline>`.
-- Linhas de stdout/stderr são mascaradas antes de virar `PluginEvent`.
-- Se `variables` estiver configurado, chaves literais em comandos devem ser escapadas como `{{` e `}}`.
-- O processo é iniciado com `start_new_session=True`, criando grupo próprio.
-- O PID e PGID são gravados nos metadados ativos em `temp/active_<module>.json`.
-- O kill é feito por grupo de processo via shell:
+- `command` can be a string or a list of strings.
+- A string uses `shell=True`.
+- A list uses direct execution.
+- `pipeline` is optional and must be a non-empty string when provided.
+- With `pipeline`, the main command is connected by pipe to the raw shell command defined in `pipeline` and executed through `/bin/bash -o pipefail -c`, with `shell=False`.
+- In a pipeline, a list-form main command is converted with `shlex.join(...)`; a string main command is used as is.
+- `pipeline` is controlled entirely by YAML: wrappers such as `redis_client` do not propagate `host`, password, or other fields automatically to the right side of the pipe.
+- If the module has `variables`, placeholders like `{variable}` are substituted before `subprocess`.
+- In string commands, substituted values are escaped with `shlex.quote`.
+- In list commands, substituted values become text inside the corresponding argument, without shell quoting.
+- In `pipeline`, substituted values are escaped with `shlex.quote`, because the field is raw shell.
+- Started-command logs and metadata use the masked command version.
+- When `pipeline` is configured, logs and metadata record the complete masked command in the `<command> | <pipeline>` format.
+- stdout/stderr lines are masked before becoming `PluginEvent`.
+- If `variables` is configured, literal braces in commands must be escaped as `{{` and `}}`.
+- The process is started with `start_new_session=True`, creating its own group.
+- PID and PGID are written to active metadata in `temp/active_<module>.json`.
+- Kill is done by process group through the shell:
 
 ```sh
 kill -KILL -<pgid>
 ```
 
-- O cleanup defensivo tenta:
+- Defensive cleanup tries:
 
 ```sh
 kill -TERM -<pgid>
 ```
 
-e depois:
+and then:
 
 ```sh
 kill -KILL -<pgid>
 ```
 
-Validações:
+Validations:
 
-- Exit code diferente de `0` é erro.
-- Se `error_contains` aparecer no output, é erro.
-- Se `success_contains` estiver configurado e não aparecer no output, é erro.
-- Output deve ser capturado em tempo real de stdout/stderr.
+- Non-zero exit code is an error.
+- If `error_contains` appears in output, it is an error.
+- If `success_contains` is configured and does not appear in output, it is an error.
+- Output must be captured from stdout/stderr in real time.
 
 ## Plugin `clickhouse_client`
 
-O tipo `clickhouse_client` executa `/usr/bin/clickhouse-client` com `subprocess` sem shell, reutilizando o comportamento operacional de `command_line`.
+The `clickhouse_client` type runs `/usr/bin/clickhouse-client` with `subprocess` without shell, reusing the operational behavior of `command_line`.
 
-Campos:
+Fields:
 
-- `query`: texto obrigatório e não vazio.
-- `user`: texto opcional.
-- `password`: texto opcional.
-- `database`: texto opcional.
-- `pipeline`: texto opcional, shell raw do lado direito do pipe.
-- `error_contains`: texto opcional.
-- `success_contains`: texto opcional.
+- `query`: required non-empty text.
+- `user`: optional text.
+- `password`: optional text.
+- `database`: optional text.
+- `pipeline`: optional text, raw shell command for the right side of the pipe.
+- `error_contains`: optional text.
+- `success_contains`: optional text.
 
-Exemplo:
+Example:
 
 ```yaml
 plugins:
-  - id: consultar_clickhouse
+  - id: query_clickhouse
     type: clickhouse_client
     user: "{clickhouse_user}"
     password: "{clickhouse_password}"
@@ -233,34 +229,34 @@ plugins:
     success_contains: null
 ```
 
-Comando montado internamente:
+Internally assembled command:
 
 ```text
 /usr/bin/clickhouse-client --user ... --password ... --database ... --query ...
 ```
 
-Regras:
+Rules:
 
-- Sem `pipeline`, a execução é direta, com lista de argumentos e `shell=False`.
-- Com `pipeline`, herda a execução via `/bin/bash -o pipefail -c` do `CommandLinePlugin`.
-- Placeholders são resolvidos em `query`, `user`, `password` e `database`.
-- Placeholders também são resolvidos em `pipeline`.
-- `password` é sempre mascarado em logs e metadados, mesmo se não vier de variável `sensitive`.
-- O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
+- Without `pipeline`, execution is direct, with an argument list and `shell=False`.
+- With `pipeline`, it inherits `/bin/bash -o pipefail -c` execution from `CommandLinePlugin`.
+- Placeholders are resolved in `query`, `user`, `password`, and `database`.
+- Placeholders are also resolved in `pipeline`.
+- `password` is always masked in logs and metadata, even if it does not come from a `sensitive` variable.
+- The plugin inherits stdout/stderr capture, PID/PGID, `error_contains`, `success_contains`, exit code, and process-group kill from `CommandLinePlugin`.
 
 ## Plugin `redis_client`
 
-O tipo `redis_client` executa `/usr/bin/redis-cli` com `subprocess` sem shell, reutilizando o comportamento operacional de `command_line`.
+The `redis_client` type runs `/usr/bin/redis-cli` with `subprocess` without shell, reusing the operational behavior of `command_line`.
 
-Campos:
+Fields:
 
-- `host`: texto opcional, montado como `-h <host>`.
-- `args`: obrigatório, como lista de argumentos ou string não vazia parseada com `shlex.split`.
-- `pipeline`: texto opcional, shell raw do lado direito do pipe.
-- `error_contains`: texto opcional.
-- `success_contains`: texto opcional.
+- `host`: optional text, assembled as `-h <host>`.
+- `args`: required, as an argument list or non-empty string parsed with `shlex.split`.
+- `pipeline`: optional text, raw shell command for the right side of the pipe.
+- `error_contains`: optional text.
+- `success_contains`: optional text.
 
-Exemplo:
+Example:
 
 ```yaml
 plugins:
@@ -276,158 +272,160 @@ plugins:
     success_contains: null
 ```
 
-Comando montado internamente:
+Internally assembled command:
 
 ```text
 /usr/bin/redis-cli -h <host> <args...>
 ```
 
-Regras:
+Rules:
 
-- Sem `pipeline`, a execução é direta, com lista de argumentos e `shell=False`.
-- Com `pipeline`, herda a execução via `/bin/bash -o pipefail -c` do `CommandLinePlugin`.
-- `args` em lista deve conter apenas strings não vazias.
-- `args` em string é parseado com `shlex.split`.
-- Placeholders são resolvidos em `host` e `args`.
-- Placeholders também são resolvidos em `pipeline`.
-- `host` não é propagado automaticamente para o `pipeline`; informe-o explicitamente se necessário.
-- O plugin herda captura de stdout/stderr, PID/PGID, `error_contains`, `success_contains`, exit code e kill por grupo de processo do `CommandLinePlugin`.
+- Without `pipeline`, execution is direct, with an argument list and `shell=False`.
+- With `pipeline`, it inherits `/bin/bash -o pipefail -c` execution from `CommandLinePlugin`.
+- List-form `args` must contain only non-empty strings.
+- String-form `args` is parsed with `shlex.split`.
+- Placeholders are resolved in `host` and `args`.
+- Placeholders are also resolved in `pipeline`.
+- `host` is not propagated automatically to `pipeline`; provide it explicitly when needed.
+- The plugin inherits stdout/stderr capture, PID/PGID, `error_contains`, `success_contains`, exit code, and process-group kill from `CommandLinePlugin`.
 
-## Execução, Status e Logs
+## Execution, Status, And Logs
 
-Rotas principais:
+Main routes:
 
-- `GET /`: página principal com tabela de módulos.
-- `GET /modules/new`: tela para criar módulo, restrita ao `admin`.
-- `GET /modules/<module>/edit`: tela para editar módulo para `admin`; para `user`, visualização readonly do YAML com valores `sensitive` mascarados.
-- `GET /<module>`: página do módulo.
-- `GET /api/modules/status`: status de todos os módulos.
-- `GET /api/modules/<module>/status`: status de um módulo.
-- `POST /api/modules/validate`: valida YAML de módulo sem persistir, restrita ao `admin`.
-- `POST /api/modules`: cria módulo em `modules/user/<module>.yaml`, restrita ao `admin`.
-- `PUT /api/modules/<module>`: salva YAML de módulo existente, restrita ao `admin`.
-- `DELETE /api/modules/<module>`: exclui módulo e arquivos temporários relacionados, restrita ao `admin`.
-- `GET /api/modules/<module>/run`: inicia execução e acompanha via SSE; a execução roda desacoplada da conexão do cliente.
-- `GET /api/modules/<module>/logs`: lê logs persistidos incrementalmente.
-- `POST /api/modules/<module>/logs/clear`: limpa logs quando parado.
-- `POST /api/modules/<module>/kill`: solicita kill do plugin atual.
-- `GET /api/events`: stream SSE global de sinais mínimos de atualização.
+- `GET /`: main page with module table.
+- `GET /modules/new`: module creation screen, restricted to `admin`.
+- `GET /modules/<module>/edit`: module edit screen for `admin`; for `user`, read-only YAML view with `sensitive` values masked.
+- `GET /<module>`: module page.
+- `GET /api/modules/status`: status of all modules.
+- `GET /api/modules/<module>/status`: status of one module.
+- `POST /api/modules/validate`: validates module YAML without persisting, restricted to `admin`.
+- `POST /api/modules`: creates a module in `modules/user/<module>.yaml`, restricted to `admin`.
+- `PUT /api/modules/<module>`: saves YAML for an existing module, restricted to `admin`.
+- `DELETE /api/modules/<module>`: deletes a module and related temporary files, restricted to `admin`.
+- `GET /api/modules/<module>/run`: starts execution and follows it through SSE; execution is detached from the client connection.
+- `GET /api/modules/<module>/logs`: reads persisted logs incrementally.
+- `POST /api/modules/<module>/logs/clear`: clears logs when stopped.
+- `POST /api/modules/<module>/kill`: requests kill of the current plugin.
+- `GET /api/events`: global SSE stream of minimal update signals.
 
-Persistência temporária:
+Temporary persistence:
 
-- Logs da última execução ficam em `temp/temp_<module>.jsonl`.
-- Cada linha é um evento JSON com `run_id`, `sequence`, `event`, `created_at`, `level`, `message`, status opcionais por etapa em `plugin_statuses` e metadados opcionais.
-- Execução ativa fica em `temp/active_<module>.json`.
-- A execução ativa inclui `plugin_statuses`, origem da execução (`manual` ou `schedule`), horário agendado opcional, plugin atual, kill flag e metadados como PID/PGID.
-- Arquivos em `temp/*.jsonl` e `temp/active_*.json` não devem ser versionados.
-- Ao iniciar a aplicação, os artefatos gerados por módulos em `temp/temp_*.jsonl` e `temp/active_*.json` são removidos.
+- Latest-run logs are stored in `temp/temp_<module>.jsonl`.
+- Each line is a JSON event with `run_id`, `sequence`, `event`, `created_at`, `level`, `message`, optional per-step statuses in `plugin_statuses`, and optional metadata.
+- Active execution is stored in `temp/active_<module>.json`.
+- Active execution includes `plugin_statuses`, run origin (`manual` or `schedule`), optional scheduled time, current plugin, kill flag, and metadata such as PID/PGID.
+- Files in `temp/*.jsonl` and `temp/active_*.json` must not be versioned.
+- When the application starts, generated module artifacts in `temp/temp_*.jsonl` and `temp/active_*.json` are removed.
 
-O `run_id` identifica uma execução. A `sequence` reinicia a cada nova execução. O frontend usa ambos para deduplicar eventos, detectar quando deve resetar o console e reconstruir status por etapa a partir dos eventos persistidos.
+`run_id` identifies a run. `sequence` restarts for each new run. The frontend uses both to deduplicate events, detect when the console must reset, and rebuild per-step status from persisted events.
 
 ## Interface
 
-Padrões atuais:
+Current patterns:
 
 - Bootstrap via CDN.
-- O estilo visual compartilhado fica em `static/app.css`; evite CSS inline nos templates salvo exceção pontual justificada.
-- O visual padrão é inspirado no GitHub light: fundo claro, superfícies brancas, bordas finas, tabelas densas, azul para ação primária e vermelho apenas para ações destrutivas.
-- HTML simples em Jinja templates.
-- O nome público do produto é `Latch`.
-- Páginas autenticadas devem mostrar o cabeçalho global com `Latch`, navegação para módulos, usuário logado e logout.
-- Login e setup devem mostrar `Latch` com destaque visual moderado.
-- Todas as páginas HTML devem incluir o rodapé compartilhado com a página oficial: `https://github.com/edgarrc/latch`.
-- Logs renderizados com `textContent`, nunca `innerHTML`.
-- SSE usado para execução iniciada pela própria página.
-- SSE global usado para sinalizar alterações vindas do backend sem polling periódico.
-- Endpoints de status/logs continuam sendo a fonte dos dados; o SSE global apenas invalida a tela e o frontend faz `fetch` quando recebe o sinal.
+- Shared visual style lives in `static/app.css`; avoid inline CSS in templates unless a specific exception is justified.
+- The default visual style is inspired by GitHub light: light background, white surfaces, thin borders, dense tables, blue for primary actions, and red only for destructive actions.
+- Simple HTML in Jinja templates.
+- The public product name is `Latch`.
+- Authenticated pages must show the global header with `Latch`, module navigation, logged-in user, and logout.
+- Login and setup must show `Latch` with moderate visual prominence.
+- All HTML pages must include the shared footer with the official page: `https://github.com/edgarrc/latch`.
+- Logs are rendered with `textContent`, never `innerHTML`.
+- SSE is used for execution started by the current page.
+- Global SSE is used to signal backend changes without periodic polling.
+- Status/log endpoints remain the source of data; global SSE only invalidates the screen, and the frontend performs `fetch` when it receives a signal.
+- The interface language is English. Internal code identifiers remain in English and must not be translated into UI copy.
 
-Módulos de sistema:
+System modules:
 
-- Módulos em `modules/system/*.yaml` são reservados para testes automatizados e arquitetura interna.
-- Eles não devem aparecer na listagem, status global ou rotas públicas da interface/API.
-- Agentes podem editá-los livremente para cobrir comportamentos de teste.
-- Módulos em `modules/user/*.yaml` são dados operacionais da instalação e não devem ser tratados como contrato fixo da suíte.
+- Modules in `modules/system/*.yaml` are reserved for automated tests and internal architecture.
+- They must not appear in the listing, global status, or public interface/API routes.
+- Agents can edit them freely to cover test behavior.
+- Modules in `modules/user/*.yaml` are operational installation data and must not be treated as fixed test-suite contracts.
 
-Estados da tela do módulo:
+Module screen states:
 
-- `Pronto`: pode executar e limpar; kill desabilitado.
-- `Executando`: run/clear desabilitados; kill habilitado.
-- `Interrompendo`: kill já solicitado; kill desabilitado.
-- `Concluído`: execução finalizou com sucesso.
-- `Falhou`: execução finalizou com erro.
-- `Interrompido`: execução foi morta pelo usuário.
+- `Ready`: can run and clear; kill disabled.
+- `Running`: run/clear disabled; kill enabled.
+- `Interrupting`: kill already requested; kill disabled.
+- `Completed`: execution finished successfully.
+- `Failed`: execution finished with an error.
+- `Interrupted`: execution was killed by the user.
 
-Estados da lista de etapas:
+Step list states:
 
-- A tela inicial mostra todas as etapas como `Não iniciado`.
-- Ao iniciar um batch, as etapas entram em `Enfileirado`; a etapa atual vira `Executando` em `plugin_start`.
-- `plugin_done` marca a etapa como `Concluído`.
-- `done` com status `failed` marca o plugin do payload como `Falhou`.
-- `done` com status `killed` marca o plugin do payload como `Interrompido`.
-- Etapas futuras permanecem `Enfileirado` se o batch parar antes de chegar nelas.
+- The initial screen shows all steps as `Not started`.
+- When a batch starts, steps become `Queued`; the current step becomes `Running` on `plugin_start`.
+- `plugin_done` marks the step as `Completed`.
+- `done` with status `failed` marks the payload plugin as `Failed`.
+- `done` with status `killed` marks the payload plugin as `Interrupted`.
+- Future steps remain `Queued` if the batch stops before reaching them.
 
-## Concorrência
+## Concurrency
 
-- `filelock` é obrigatório para lock por módulo.
-- O lock é gravado em `locks/<module>.lock`.
-- O estado em memória (`ACTIVE_RUNS`) complementa o lock para acessar o plugin ativo e permitir kill.
-- O arquivo `temp/active_<module>.json` é observabilidade/metadados, não a fonte principal para chamar `kill()`.
-- Em todos os caminhos de saída, o app deve liberar lock, remover execução ativa e limpar metadados ativos.
-- O scheduler embutido pressupõe um único processo responsável por agenda. Em deploy multi-worker, apenas um processo deve manter o scheduler habilitado.
-- O deploy de produção suportado usa `uwsgi.ini` com `processes = 1`, `threads >= 16`, `enable-threads = true` e `lazy-apps = true`.
-- Não aumente `processes` sem externalizar ou redesenhar o scheduler e o estado ativo usado por `Kill`; múltiplos workers podem criar múltiplos schedulers e deixar o plugin ativo inacessível ao endpoint de interrupção.
-- `lazy-apps = true` evita carregar a aplicação no master uWSGI antes do fork, preservando as threads internas iniciadas no import e durante a execução.
-- Execuções longas podem durar dias desde que o processo uWSGI continue vivo; não configure `harakiri`, `max-requests` ou reinícios automáticos por tempo para este modelo.
-- A conexão SSE não é a fonte de vida da execução: batches manuais e agendados rodam desacoplados e podem ser acompanhados depois por status/logs persistidos. SSEs devem emitir heartbeat para sobreviver a períodos sem output.
-- O `uwsgi.ini` deve manter `ignore-sigpipe`, `ignore-write-errors` e `disable-write-exception` habilitados para suprimir `Broken pipe` / `OSError: write error` quando o navegador ou proxy fecha uma conexão SSE antes do próximo heartbeat.
+- `filelock` is required for per-module locking.
+- The lock is written to `locks/<module>.lock`.
+- In-memory state (`ACTIVE_RUNS`) complements the lock so the active plugin can be accessed and killed.
+- The `temp/active_<module>.json` file is observability/metadata, not the main source for calling `kill()`.
+- Every exit path must release the lock, remove active execution, and clear active metadata.
+- The embedded scheduler assumes one process is responsible for scheduling. In a multi-worker deployment, only one process may keep the scheduler enabled.
+- The supported production deployment uses `uwsgi.ini` with `processes = 1`, `threads >= 16`, `enable-threads = true`, and `lazy-apps = true`.
+- Do not increase `processes` without externalizing or redesigning the scheduler and active state used by `Kill`; multiple workers can create multiple schedulers and make the active plugin inaccessible to the interruption endpoint.
+- `lazy-apps = true` avoids loading the application in the uWSGI master before fork, preserving internal threads started during import and execution.
+- Long runs can last for days as long as the uWSGI process remains alive; do not configure `harakiri`, `max-requests`, or time-based automatic restarts for this model.
+- The SSE connection is not the execution lifetime source: manual and scheduled batches run detached and can be followed later through persisted status/logs. SSEs must emit heartbeats to survive periods without output.
+- `uwsgi.ini` must keep `ignore-sigpipe`, `ignore-write-errors`, and `disable-write-exception` enabled to suppress `Broken pipe` / `OSError: write error` when the browser or proxy closes an SSE connection before the next heartbeat.
 
-## Testes Esperados
+## Expected Tests
 
-Manter cobertura para:
+Maintain coverage for:
 
-- Carregamento de módulos YAML.
-- Execução sequencial com sucesso.
-- Falha por exit code.
-- Falha por `error_contains`.
-- Falha por ausência de `success_contains`.
-- Validação de `variables` no YAML.
-- Substituição de placeholder em comando string e lista.
-- Resolução de variável por ambiente.
-- Falha por variável de ambiente ausente.
-- Falha por placeholder desconhecido.
-- Falha por `integer` inválido.
-- Mascaramento de `sensitive` em logs, stdout/stderr persistidos, comando exibido e metadados ativos.
-- Lock por módulo.
-- Independência entre módulos.
-- Persistência e leitura incremental de logs.
-- Execução desacoplada da conexão SSE de acompanhamento, para que queda/reload do navegador não interrompa o batch.
-- Reset de console por novo `run_id`.
-- Status por etapa em `plugin_statuses`, incluindo sucesso, falha e etapas futuras enfileiradas.
-- Persistência de `plugin_statuses` em `temp/active_<module>.json` durante execução.
-- Clear permitido quando parado.
-- Clear bloqueado durante execução.
-- Kill bloqueado quando parado.
-- Kill chamando `plugin.kill()` quando ativo.
-- `command_line` gravando PID/PGID e encerrando como `killed`.
-- `clickhouse_client` montando argv fixo com `/usr/bin/clickhouse-client`, mascarando senha e herdando validações/kill de `command_line`.
-- `redis_client` aceitando `host` opcional e `args` lista/string, montando argv fixo com `/usr/bin/redis-cli` e herdando validações/kill de `command_line`.
-- Testes de `clickhouse_client` e `redis_client` não devem chamar os CLIs reais; simule a execução com binários/scripts temporários controlados pela suíte.
-- Descoberta dinâmica de módulos de usuário em `modules/user/*.yaml`.
-- Validação de YAML de módulo sem persistir e sem reformatar o conteúdo do editor.
-- Criação e edição de módulo persistindo o YAML bruto validado em `modules/user/<module>.yaml`.
-- Bloqueio de salvamento quando o módulo está em execução.
-- Exclusão de módulo removendo YAML, log temporário, execução ativa temporária e lock.
-- Bloqueio de exclusão quando o módulo está em execução.
+- YAML module loading.
+- Successful sequential execution.
+- Failure by exit code.
+- Failure by `error_contains`.
+- Failure by missing `success_contains`.
+- YAML `variables` validation.
+- Placeholder substitution in string and list commands.
+- Environment variable resolution.
+- Failure by missing environment variable.
+- Failure by unknown placeholder.
+- Failure by invalid `integer`.
+- `sensitive` masking in logs, persisted stdout/stderr, displayed command, and active metadata.
+- Per-module locking.
+- Independence between modules.
+- Persisted and incremental log reading.
+- Execution detached from the follow-up SSE connection, so browser disconnect/reload does not interrupt the batch.
+- Console reset by new `run_id`.
+- Per-step status in `plugin_statuses`, including success, failure, and queued future steps.
+- `plugin_statuses` persistence in `temp/active_<module>.json` during execution.
+- Clear allowed when stopped.
+- Clear blocked during execution.
+- Kill blocked when stopped.
+- Kill calling `plugin.kill()` when active.
+- `command_line` recording PID/PGID and ending as `killed`.
+- `clickhouse_client` assembling fixed argv with `/usr/bin/clickhouse-client`, masking password, and inheriting validations/kill from `command_line`.
+- `redis_client` accepting optional `host` and list/string `args`, assembling fixed argv with `/usr/bin/redis-cli`, and inheriting validations/kill from `command_line`.
+- `clickhouse_client` and `redis_client` tests must not call the real CLIs; simulate execution with temporary binaries/scripts controlled by the test suite.
+- Dynamic discovery of user modules in `modules/user/*.yaml`.
+- Module YAML validation without persisting and without reformatting editor content.
+- Module creation and editing persisting raw validated YAML in `modules/user/<module>.yaml`.
+- Save blocked when the module is running.
+- Module deletion removing YAML, temporary log, temporary active execution, and lock.
+- Deletion blocked when the module is running.
 
-Ao adicionar novos tipos de plugin, inclua testes específicos para `run()` e `kill()`.
+When adding new plugin types, include specific tests for `run()` and `kill()`.
 
-## Dependências
+## Dependencies
 
-Dependências atuais em `requirements.txt`:
+Current dependencies in `requirements.txt`:
 
 - Flask
 - PyYAML
 - filelock
+- croniter
 - pytest
 
-Não introduza novas dependências sem necessidade clara. Prefira manter a aplicação simples e explícita.
+Do not introduce new dependencies without a clear need. Prefer keeping the application simple and explicit.
