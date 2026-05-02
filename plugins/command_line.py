@@ -61,7 +61,7 @@ class CommandLinePlugin(BasePlugin):
             raise ValueError(f"Plugin {plugin_id!r} sensitive values must be strings.")
 
     def _run_once(self) -> Iterator[PluginEvent]:
-        yield PluginEvent("info", f"Iniciando comando: {self._display_command_preview()}")
+        yield PluginEvent("info", f"Starting command: {self._display_command_preview()}")
 
         process: subprocess.Popen[str] | None = None
         try:
@@ -79,7 +79,7 @@ class CommandLinePlugin(BasePlugin):
             except (OSError, TypeError, ValueError) as exc:
                 raise PluginExecutionError(
                     self._mask_text(
-                        f"Plugin {self.plugin_id!r} falhou ao iniciar comando: {exc}"
+                        f"Plugin {self.plugin_id!r} failed to start command: {exc}"
                     )
                 ) from exc
 
@@ -97,11 +97,11 @@ class CommandLinePlugin(BasePlugin):
             )
             yield PluginEvent(
                 "info",
-                f"Processo iniciado: pid={process.pid}, pgid={process_group_id}",
+                f"Process started: pid={process.pid}, pgid={process_group_id}",
             )
             if self._was_kill_requested():
                 self._kill_process_group(process_group_id)
-                yield PluginEvent("error", "Kill pendente aplicado ao processo recém-iniciado.")
+                yield PluginEvent("error", "Pending kill applied to the newly started process.")
 
             output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
             stdout_thread = threading.Thread(
@@ -137,31 +137,31 @@ class CommandLinePlugin(BasePlugin):
 
             if self._was_kill_requested():
                 raise PluginKilledError(
-                    f"Plugin {self.plugin_id!r} foi interrompido por solicitação do usuário."
+                    f"Plugin {self.plugin_id!r} was interrupted by user request."
                 )
 
             if self.error_contains and self.error_contains in full_output:
                 raise PluginExecutionError(
                     self._mask_text(
-                        f"Plugin {self.plugin_id!r} falhou: encontrou a string de erro "
-                        f"{self.error_contains!r} no output."
+                        f"Plugin {self.plugin_id!r} failed: found error string "
+                        f"{self.error_contains!r} in the output."
                     )
                 )
 
             if exit_code != 0:
                 raise PluginExecutionError(
-                    f"Plugin {self.plugin_id!r} falhou com exit code {exit_code}."
+                    f"Plugin {self.plugin_id!r} failed with exit code {exit_code}."
                 )
 
             if self.success_contains and self.success_contains not in full_output:
                 raise PluginExecutionError(
                     self._mask_text(
-                        f"Plugin {self.plugin_id!r} falhou: a string de sucesso "
-                        f"{self.success_contains!r} não apareceu no output."
+                        f"Plugin {self.plugin_id!r} failed: success string "
+                        f"{self.success_contains!r} did not appear in the output."
                     )
                 )
 
-            yield PluginEvent("success", f"Comando finalizado com sucesso: exit code {exit_code}")
+            yield PluginEvent("success", f"Command completed successfully: exit code {exit_code}")
         finally:
             if process is not None and process.poll() is None:
                 process_group_id = self._process_group_id
@@ -218,8 +218,8 @@ class CommandLinePlugin(BasePlugin):
             with self._process_lock:
                 self._kill_requested = False
             raise PluginKillError(
-                f"Falha ao interromper plugin {self.plugin_id!r} com {kill_command!r}: "
-                f"{result.stderr.strip() or result.stdout.strip() or 'sem detalhes'}"
+                f"Failed to interrupt plugin {self.plugin_id!r} with {kill_command!r}: "
+                f"{result.stderr.strip() or result.stdout.strip() or 'no details'}"
             )
         self.update_runtime_metadata({"kill_command": kill_command})
 

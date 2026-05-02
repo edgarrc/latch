@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,11 +12,11 @@
       {% include "_app_header.html" %}
       <div class="toolbar page-heading">
         <div>
-          <h1 class="page-title">Módulos</h1>
-          <p class="page-description">Gerencie os batches disponíveis, acompanhe status e abra a execução de cada módulo.</p>
+          <h1 class="page-title">Modules</h1>
+          <p class="page-description">Manage available batches, track status, and open each module run.</p>
         </div>
         {% if current_is_admin %}
-          <a class="btn btn-primary" href="/modules/new">Adicionar módulo</a>
+          <a class="btn btn-primary" href="/modules/new">Add module</a>
         {% endif %}
       </div>
 
@@ -24,10 +24,10 @@
         <table class="table table-hover align-middle">
           <thead>
             <tr>
-              <th scope="col">Módulo</th>
+              <th scope="col">Module</th>
               <th class="text-center" scope="col">Status</th>
               <th class="text-center" scope="col">Plugins</th>
-              <th class="text-end" scope="col">Ação</th>
+              <th class="text-end" scope="col">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -42,7 +42,7 @@
                   {% if module.schedule %}
                     <div class="schedule-note mt-1">
                       <span class="badge {% if module.schedule_enabled %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                        {% if module.schedule_enabled %}Agendado{% else %}Agendamento desativado{% endif %}
+                        {% if module.schedule_enabled %}Scheduled{% else %}Schedule disabled{% endif %}
                       </span>
                       <span class="schedule-code">{{ module.schedule }}</span>
                     </div>
@@ -50,17 +50,17 @@
                 </td>
                 <td class="text-center">
                   <span class="badge module-status {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                    {% if module.running and module.trigger == "schedule" %}Executando agendado{% elif module.running %}Executando{% else %}Pronto{% endif %}
+                    {% if module.running and module.trigger == "schedule" %}Scheduled run{% elif module.running %}Running{% else %}Ready{% endif %}
                   </span>
                 </td>
                 <td class="text-center fw-semibold">{{ module.plugins | length }}</td>
                 <td class="text-end">
-                  <div class="btn-group btn-group-sm" role="group" aria-label="Ações do módulo">
-                    <a class="btn btn-outline-primary" href="/{{ module.id }}">Abrir</a>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Module actions">
+                    <a class="btn btn-outline-primary" href="/{{ module.id }}">Open</a>
                     {% if current_is_admin %}
-                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Editar</a>
+                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Edit</a>
                     {% else %}
-                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">Ver script</a>
+                      <a class="btn btn-outline-secondary" href="/modules/{{ module.id }}/edit">View script</a>
                     {% endif %}
                   </div>
                 </td>
@@ -68,7 +68,7 @@
             {% else %}
               <tr>
                 <td class="text-center text-secondary py-5" colspan="4">
-                  Nenhum módulo configurado.
+                  No modules configured.
                 </td>
               </tr>
             {% endfor %}
@@ -94,7 +94,7 @@
         const running = Boolean(status.running);
         const scheduledRun = running && status.trigger === "schedule";
         badge.className = `badge module-status ${running ? "text-bg-primary" : "text-bg-secondary"}`;
-        badge.textContent = scheduledRun ? "Executando agendado" : (running ? "Executando" : "Pronto");
+        badge.textContent = scheduledRun ? "Scheduled run" : (running ? "Running" : "Ready");
       }
 
       function redirectToLogin() {

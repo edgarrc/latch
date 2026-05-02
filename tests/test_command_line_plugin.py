@@ -57,7 +57,7 @@ def test_command_line_plugin_runs_list_command_through_pipeline() -> None:
     messages = collect(plugin)
 
     full_display_command = f"{shlex.join(command)} | {pipeline}"
-    assert messages[0] == f"Iniciando comando: {full_display_command}"
+    assert messages[0] == f"Starting command: {full_display_command}"
     assert any("PIPELINE OK" in message for message in messages)
     assert metadata["command"] == full_display_command
 
@@ -100,9 +100,9 @@ def test_command_line_plugin_truncates_started_command_log() -> None:
     messages = collect(plugin)
     started_message = messages[0]
 
-    assert started_message.startswith("Iniciando comando: ")
+    assert started_message.startswith("Starting command: ")
     assert started_message.endswith("[...]")
-    command_preview = started_message.removeprefix("Iniciando comando: ").removesuffix("[...]")
+    command_preview = started_message.removeprefix("Starting command: ").removesuffix("[...]")
     assert len(command_preview) == 500
     assert "tail" not in started_message
 
@@ -136,7 +136,7 @@ def test_command_line_plugin_fails_on_error_string() -> None:
         },
     )
 
-    with pytest.raises(PluginExecutionError, match="string de erro"):
+    with pytest.raises(PluginExecutionError, match="error string"):
         collect(plugin)
 
 
@@ -153,7 +153,7 @@ def test_command_line_plugin_fails_when_success_string_is_missing() -> None:
         },
     )
 
-    with pytest.raises(PluginExecutionError, match="string de sucesso"):
+    with pytest.raises(PluginExecutionError, match="success string"):
         collect(plugin)
 
 
@@ -207,9 +207,9 @@ def test_command_line_plugin_retries_timeout_extra_attempts() -> None:
         for event in plugin.run():
             messages.append(event.message)
 
-    assert sum(message.startswith("Iniciando comando:") for message in messages) == 2
+    assert sum(message.startswith("Starting command:") for message in messages) == 2
     assert any("retry 1/1" in message for message in messages)
-    assert any("Tentando novamente" in message for message in messages)
+    assert any("Retrying plugin" in message for message in messages)
 
 
 def test_command_line_plugin_ignores_timeout_retries_without_timeout() -> None:
@@ -228,7 +228,7 @@ def test_command_line_plugin_ignores_timeout_retries_without_timeout() -> None:
     messages = collect(plugin)
 
     assert any("ok" in message for message in messages)
-    assert not any("Tentando novamente" in message for message in messages)
+    assert not any("Retrying plugin" in message for message in messages)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, "1", 1.5, True])

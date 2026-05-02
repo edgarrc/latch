@@ -198,7 +198,7 @@ def test_client_plugins_preserve_command_line_output_validation(
     fake_client = write_fake_client(tmp_path)
     monkeypatch.setattr(redis_client_module, "REDIS_CLI_BINARY", str(fake_client))
 
-    with pytest.raises(PluginExecutionError, match="string de erro"):
+    with pytest.raises(PluginExecutionError, match="error string"):
         collect(
             RedisClientPlugin(
                 "erro_texto",
@@ -221,7 +221,7 @@ def test_client_plugins_preserve_command_line_output_validation(
             )
         )
 
-    with pytest.raises(PluginExecutionError, match="string de sucesso"):
+    with pytest.raises(PluginExecutionError, match="success string"):
         collect(
             RedisClientPlugin(
                 "sem_sucesso",

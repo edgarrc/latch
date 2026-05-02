@@ -55,7 +55,7 @@ LOCKS_DIR = BASE_DIR / "locks"
 TEMP_DIR = BASE_DIR / "temp"
 SETTINGS_PATH = BASE_DIR / "settings.yaml"
 APP_NAME = "Latch"
-APP_TAGLINE = "Gerenciador batch"
+APP_TAGLINE = "Batch manager"
 APP_GITHUB_URL = "https://github.com/edgarrc/latch"
 ADMIN_USERNAME = "admin"
 USER_USERNAME = "user"
@@ -418,13 +418,13 @@ def validate_schedule_enabled(value: Any, schedule: str, context: str) -> bool:
 
 def next_schedule_time(expression: str, base_time: datetime) -> datetime:
     if len(expression.split()) != 5:
-        raise ValueError(f"schedule inválido: {expression!r}.")
+        raise ValueError(f"Invalid schedule: {expression!r}.")
 
     if croniter is not None:
         try:
             next_time = croniter(expression, base_time).get_next(datetime)
         except (KeyError, ValueError) as exc:
-            raise ValueError(f"schedule inválido: {expression!r}.") from exc
+            raise ValueError(f"Invalid schedule: {expression!r}.") from exc
         if next_time.tzinfo is None and base_time.tzinfo is not None:
             next_time = next_time.replace(tzinfo=base_time.tzinfo)
         return next_time
@@ -435,7 +435,7 @@ def next_schedule_time(expression: str, base_time: datetime) -> datetime:
 def next_schedule_time_fallback(expression: str, base_time: datetime) -> datetime:
     fields = expression.split()
     if len(fields) != 5:
-        raise ValueError(f"schedule inválido: {expression!r}.")
+        raise ValueError(f"Invalid schedule: {expression!r}.")
 
     try:
         minutes, _minute_wildcard = parse_cron_field(fields[0], 0, 59)
@@ -444,7 +444,7 @@ def next_schedule_time_fallback(expression: str, base_time: datetime) -> datetim
         months, _month_wildcard = parse_cron_field(fields[3], 1, 12)
         weekdays, weekday_wildcard = parse_cron_field(fields[4], 0, 7)
     except ValueError as exc:
-        raise ValueError(f"schedule inválido: {expression!r}.") from exc
+        raise ValueError(f"Invalid schedule: {expression!r}.") from exc
     if 7 in weekdays:
         weekdays.add(0)
         weekdays.discard(7)
@@ -469,29 +469,29 @@ def next_schedule_time_fallback(expression: str, base_time: datetime) -> datetim
             return candidate
         candidate += timedelta(minutes=1)
 
-    raise ValueError(f"schedule inválido: {expression!r}.")
+    raise ValueError(f"Invalid schedule: {expression!r}.")
 
 
 def parse_cron_field(field: str, minimum: int, maximum: int) -> tuple[set[int], bool]:
     if not field:
-        raise ValueError("Campo cron vazio.")
+        raise ValueError("Empty cron field.")
 
     values: set[int] = set()
     wildcard = False
     for raw_part in field.split(","):
         part = raw_part.strip()
         if not part:
-            raise ValueError("Campo cron vazio.")
+            raise ValueError("Empty cron field.")
 
         range_part = part
         step = 1
         if "/" in part:
             range_part, step_part = part.split("/", 1)
             if not step_part.isdigit():
-                raise ValueError("Passo cron inválido.")
+                raise ValueError("Invalid cron step.")
             step = int(step_part)
             if step <= 0:
-                raise ValueError("Passo cron inválido.")
+                raise ValueError("Invalid cron step.")
 
         if range_part == "*":
             start = minimum
@@ -500,16 +500,16 @@ def parse_cron_field(field: str, minimum: int, maximum: int) -> tuple[set[int], 
         elif "-" in range_part:
             start_part, end_part = range_part.split("-", 1)
             if not start_part.isdigit() or not end_part.isdigit():
-                raise ValueError("Intervalo cron inválido.")
+                raise ValueError("Invalid cron range.")
             start = int(start_part)
             end = int(end_part)
         elif range_part.isdigit():
             start = end = int(range_part)
         else:
-            raise ValueError("Campo cron inválido.")
+            raise ValueError("Invalid cron field.")
 
         if start < minimum or end > maximum or start > end:
-            raise ValueError("Valor cron fora do intervalo permitido.")
+            raise ValueError("Cron value is outside the allowed range.")
         values.update(range(start, end + 1, step))
 
     return values, wildcard
@@ -567,7 +567,7 @@ def require_admin_access() -> Response | tuple[Response, int] | None:
     if can_edit_modules():
         return None
 
-    message = "Apenas admin pode editar módulos."
+    message = "Only admin can edit modules."
     if is_api_request():
         return jsonify({"authorized": False, "message": message}), 403
 
@@ -616,7 +616,7 @@ def require_authentication() -> Response | tuple[Response, int] | None:
 
     if is_api_request():
         return (
-            jsonify({"authenticated": False, "message": "Autenticação requerida."}),
+            jsonify({"authenticated": False, "message": "Authentication required."}),
             401,
         )
 
@@ -636,13 +636,13 @@ def setup() -> str | Response:
         user_password_confirm = request.form.get("user_password_confirm", "")
 
         if not admin_password:
-            error = "Informe a senha do admin."
+            error = "Enter the admin password."
         elif admin_password != admin_password_confirm:
-            error = "A confirmação da senha do admin não confere."
+            error = "Admin password confirmation does not match."
         elif not user_password:
-            error = "Informe a senha do user."
+            error = "Enter the user password."
         elif user_password != user_password_confirm:
-            error = "A confirmação da senha do user não confere."
+            error = "User password confirmation does not match."
         else:
             settings = build_settings(admin_password, user_password)
             write_settings(settings)
@@ -670,7 +670,7 @@ def login() -> str | Response:
             authenticate_session(username)
             return redirect(next_url)
 
-        error = "Usuário ou senha inválidos."
+        error = "Invalid username or password."
 
     return render_template(
         "login.html",
@@ -791,7 +791,7 @@ def validate_module() -> Response:
     module_id = payload.get("module_id") or "new_module"
     content = payload.get("content")
     if not isinstance(content, str):
-        return jsonify({"valid": False, "message": "O YAML do módulo é obrigatório."}), 400
+        return jsonify({"valid": False, "message": "Module YAML is required."}), 400
 
     try:
         validate_module_id(str(module_id))
@@ -804,7 +804,7 @@ def validate_module() -> Response:
     return jsonify(
         {
             "valid": True,
-            "message": "Configuração válida.",
+            "message": "Valid configuration.",
             "module": {
                 "id": module["id"],
                 "name": module["name"],
@@ -825,9 +825,9 @@ def create_module_config() -> Response:
     module_id = payload.get("module_id")
     content = payload.get("content")
     if not isinstance(module_id, str) or not module_id:
-        return jsonify({"saved": False, "message": "Informe o ID do módulo."}), 400
+        return jsonify({"saved": False, "message": "Enter the module ID."}), 400
     if not isinstance(content, str):
-        return jsonify({"saved": False, "message": "O YAML do módulo é obrigatório."}), 400
+        return jsonify({"saved": False, "message": "Module YAML is required."}), 400
 
     try:
         validate_module_id(module_id)
@@ -837,7 +837,7 @@ def create_module_config() -> Response:
 
     config_path = module_config_path(module_id)
     if config_path.exists():
-        return jsonify({"saved": False, "message": "Já existe um módulo com esse ID."}), 409
+        return jsonify({"saved": False, "message": "A module with this ID already exists."}), 409
 
     try:
         config = parse_module_yaml(content)
@@ -857,7 +857,7 @@ def create_module_config() -> Response:
         {
             "saved": True,
             "id": module_id,
-            "message": "Módulo criado.",
+            "message": "Module created.",
             "redirect": f"/modules/{module_id}/edit",
             "yaml_content": content,
         }
@@ -876,14 +876,14 @@ def update_module_config(module_name: str) -> Response:
             {
                 "saved": False,
                 "running": True,
-                "message": "Não é possível salvar enquanto o módulo está em execução.",
+                "message": "Cannot save while the module is running.",
             }
         ), 409
 
     payload = request.get_json(silent=True) or {}
     content = payload.get("content")
     if not isinstance(content, str):
-        return jsonify({"saved": False, "message": "O YAML do módulo é obrigatório."}), 400
+        return jsonify({"saved": False, "message": "Module YAML is required."}), 400
 
     try:
         config = parse_module_yaml(content)
@@ -903,7 +903,7 @@ def update_module_config(module_name: str) -> Response:
         {
             "saved": True,
             "id": module_name,
-            "message": "Módulo salvo.",
+            "message": "Module saved.",
             "yaml_content": content,
         }
     )
@@ -921,7 +921,7 @@ def delete_module_config(module_name: str) -> Response:
             {
                 "deleted": False,
                 "running": True,
-                "message": "Não é possível excluir enquanto o módulo está em execução.",
+                "message": "Cannot delete while the module is running.",
             }
         ), 409
 
@@ -933,7 +933,7 @@ def delete_module_config(module_name: str) -> Response:
         reason="module_deleted",
     )
     SCHEDULER.wake()
-    return jsonify({"deleted": True, "id": module_name, "message": "Módulo excluído."})
+    return jsonify({"deleted": True, "id": module_name, "message": "Module deleted."})
 
 
 @app.get("/api/modules/<module_name>/logs")
@@ -980,7 +980,7 @@ def clear_module_logs(module_name: str) -> Response:
                 "id": module_name,
                 "cleared": False,
                 "running": True,
-                "message": "Não é possível limpar o log enquanto o módulo está em execução.",
+                "message": "Cannot clear the log while the module is running.",
             }
         ), 409
 
@@ -1005,7 +1005,7 @@ def kill_module(module_name: str) -> Response:
                 "id": module_name,
                 "killed": False,
                 "running": False,
-                "message": "O módulo não está em execução.",
+                "message": "The module is not running.",
             }
         ), 409
 
@@ -1039,7 +1039,7 @@ def kill_module(module_name: str) -> Response:
         {
             "level": "error",
             "plugin": active_run.current_plugin_id,
-            "message": "Kill solicitado pelo usuário.",
+            "message": "Kill requested by the user.",
         },
     )
 
@@ -1048,7 +1048,7 @@ def kill_module(module_name: str) -> Response:
             "id": module_name,
             "killed": True,
             "running": True,
-            "message": "Kill solicitado.",
+            "message": "Kill requested.",
         }
     )
 
@@ -1087,7 +1087,7 @@ def discover_system_module_names() -> list[str]:
 def validate_module_id(module_name: str) -> None:
     if not MODULE_ID_RE.fullmatch(module_name):
         raise ValueError(
-            "O ID do módulo deve conter apenas letras, números, '_' ou '-'."
+            "The module ID must contain only letters, numbers, '_' or '-'."
         )
 
 
@@ -1122,7 +1122,7 @@ def is_system_module(module_name: str) -> bool:
 
 def ensure_not_system_module(module_name: str) -> None:
     if is_system_module(module_name):
-        raise ValueError("ID reservado para uso interno do sistema.")
+        raise ValueError("ID reserved for internal system use.")
 
 
 def ensure_module_exists(module_name: str) -> None:
@@ -1150,13 +1150,13 @@ def read_module_yaml(module_name: str) -> str:
 
 def default_module_yaml() -> str:
     return (
-        "name: Novo módulo\n"
-        "description: Descreva o que este módulo faz.\n"
+        "name: New module\n"
+        "description: Describe what this module does.\n"
         "plugins:\n"
-        "  - id: primeira_etapa\n"
+        "  - id: first_step\n"
         "    type: command_line\n"
-        "    description: Descreva esta etapa.\n"
-        "    command: \"echo primeira etapa\"\n"
+        "    description: Describe this step.\n"
+        "    command: \"echo first step\"\n"
         "    error_contains: \"ERROR\"\n"
         "    success_contains:\n"
     )
@@ -1166,10 +1166,10 @@ def parse_module_yaml(content: str) -> dict[str, Any]:
     try:
         config = yaml.safe_load(content) or {}
     except yaml.YAMLError as exc:
-        raise ValueError(f"YAML inválido: {exc}") from exc
+        raise ValueError(f"Invalid YAML: {exc}") from exc
 
     if not isinstance(config, dict):
-        raise ValueError("O YAML do módulo deve ser um objeto.")
+        raise ValueError("The module YAML must be an object.")
     return config
 
 
@@ -1447,7 +1447,7 @@ def create_active_run(
     scheduled_for: str | None = None,
 ) -> ActiveRun:
     if trigger not in RUN_TRIGGERS:
-        raise ValueError(f"Trigger de execução inválido: {trigger!r}.")
+        raise ValueError(f"Invalid execution trigger: {trigger!r}.")
     plugin_statuses = {
         plugin["id"]: "enqueued"
         for plugin in plugins or []
@@ -1686,7 +1686,7 @@ def stream_batch(
                 "level": "error",
                 "trigger": trigger,
                 "scheduled_for": scheduled_for,
-                "message": f"O módulo {module['name']} já está em execução.",
+                "message": f"Module {module['name']} is already running.",
             },
         )
         return
@@ -1711,9 +1711,9 @@ def stream_batch(
             {
                 "level": "info",
                 "message": (
-                    f"Iniciando batch agendado {module['name']}."
+                    f"Starting scheduled batch {module['name']}."
                     if trigger == RUN_TRIGGER_SCHEDULE
-                    else f"Iniciando batch {module['name']}."
+                    else f"Starting batch {module['name']}."
                 ),
                 "plugin_statuses": dict(active_run.plugin_statuses),
             },
@@ -1727,7 +1727,7 @@ def stream_batch(
                         "status": "killed",
                         "level": "error",
                         "plugin_statuses": get_plugin_statuses(module_id),
-                        "message": f"Batch {module['name']} interrompido pelo usuário.",
+                        "message": f"Batch {module['name']} interrupted by the user.",
                     },
                 )
                 return
@@ -1766,7 +1766,7 @@ def stream_batch(
                     "plugin": plugin_id,
                     "plugin_status": "running",
                     "plugin_statuses": plugin_statuses,
-                    "message": f"Executando plugin {plugin_id}.",
+                    "message": f"Running plugin {plugin_id}.",
                 },
             )
 
@@ -1817,7 +1817,7 @@ def stream_batch(
                     "plugin": plugin_id,
                     "plugin_status": "success",
                     "plugin_statuses": plugin_statuses,
-                    "message": f"Plugin {plugin_id} concluído.",
+                    "message": f"Plugin {plugin_id} completed.",
                 },
             )
 
@@ -1828,7 +1828,7 @@ def stream_batch(
                     "status": "killed",
                     "level": "error",
                     "plugin_statuses": get_plugin_statuses(module_id),
-                    "message": f"Batch {module['name']} interrompido pelo usuário.",
+                    "message": f"Batch {module['name']} interrupted by the user.",
                 },
             )
             return
@@ -1843,7 +1843,7 @@ def stream_batch(
                     for plugin in module["plugins"]
                     if isinstance(plugin, dict) and isinstance(plugin.get("id"), str)
                 },
-                "message": f"Batch {module['name']} concluído com sucesso.",
+                "message": f"Batch {module['name']} completed successfully.",
             },
         )
     except Exception as exc:
@@ -1853,7 +1853,7 @@ def stream_batch(
                 "status": "failed",
                 "level": "error",
                 "plugin_statuses": get_plugin_statuses(module_id),
-                "message": f"Erro inesperado: {exc}",
+                "message": f"Unexpected error: {exc}",
             },
         )
     finally:

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,11 +12,11 @@
       {% include "_app_header.html" %}
       <div class="toolbar page-heading">
         <div>
-          <a class="back-link" href="/">← Módulos</a>
+          <a class="back-link" href="/">← Modules</a>
           <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
             <h1 class="page-title">{{ module.name }}</h1>
             <span id="statusBadge" class="badge status-badge {% if module.running %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-              {% if module.running and module.trigger == "schedule" %}Executando agendado{% elif module.running %}Executando{% else %}Pronto{% endif %}
+              {% if module.running and module.trigger == "schedule" %}Scheduled run{% elif module.running %}Running{% else %}Ready{% endif %}
             </span>
           </div>
           {% if module.description %}
@@ -27,9 +27,9 @@
               <span
                 id="scheduleStateBadge"
                 class="badge {% if module.schedule_enabled %}text-bg-primary{% else %}text-bg-secondary{% endif %}"
-              >{% if module.schedule_enabled %}Agendado{% else %}Agendamento desativado{% endif %}</span>
+              >{% if module.schedule_enabled %}Scheduled{% else %}Schedule disabled{% endif %}</span>
               <span class="schedule-code">{{ module.schedule }}</span>
-              <span id="nextRunText" class="text-secondary">{% if module.scheduled and module.next_run_display %}Próxima execução: {{ module.next_run_display }}{% endif %}</span>
+              <span id="nextRunText" class="text-secondary">{% if module.scheduled and module.next_run_display %}Next run: {{ module.next_run_display }}{% endif %}</span>
             </div>
           {% endif %}
         </div>
@@ -37,14 +37,14 @@
           <button id="clearButton" class="btn btn-outline-secondary" type="button" {% if module.running %}disabled{% endif %}>Clear</button>
           <button id="killButton" class="btn btn-danger" type="button" {% if not module.running %}disabled{% endif %}>Kill</button>
           <button id="runButton" class="btn btn-primary" type="button" {% if module.running %}disabled{% endif %}>
-            {% if module.running %}Executando...{% else %}Executar{% endif %}
+            {% if module.running %}Running...{% else %}Run{% endif %}
           </button>
         </div>
       </div>
 
       <section class="mb-4">
         <div class="d-flex align-items-center justify-content-between mb-2">
-          <h2 class="h5 mb-0">Etapas configuradas</h2>
+          <h2 class="h5 mb-0">Configured steps</h2>
           <span class="text-secondary small">{{ module.plugins | length }} plugins</span>
         </div>
         <div class="surface table-responsive">
@@ -52,9 +52,9 @@
             <thead>
               <tr>
                 <th scope="col" class="text-secondary fw-semibold">#</th>
-                <th scope="col" class="text-secondary fw-semibold">Etapa</th>
-                <th scope="col" class="text-secondary fw-semibold">Descrição</th>
-                <th scope="col" class="text-secondary fw-semibold">Tipo</th>
+                <th scope="col" class="text-secondary fw-semibold">Step</th>
+                <th scope="col" class="text-secondary fw-semibold">Description</th>
+                <th scope="col" class="text-secondary fw-semibold">Type</th>
                 <th scope="col" class="text-secondary fw-semibold">Timeout</th>
                 <th scope="col" class="text-secondary fw-semibold text-end">Status</th>
               </tr>
@@ -77,7 +77,7 @@
                     <span
                       class="badge plugin-status text-bg-secondary"
                       data-plugin-id="{{ plugin.id }}"
-                    >Não iniciado</span>
+                    >Not started</span>
                   </td>
                 </tr>
               {% endfor %}
@@ -89,7 +89,7 @@
       <section>
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Console</h2>
-          <span class="text-secondary small">Saída da última execução</span>
+          <span class="text-secondary small">Output from the latest run</span>
         </div>
         <div id="console" class="console" aria-live="polite"></div>
       </section>
@@ -111,12 +111,12 @@
         ])
       );
       const pluginStatusConfig = {
-        not_started: { label: "Não iniciado", className: "text-bg-secondary" },
-        enqueued: { label: "Enfileirado", className: "text-bg-warning" },
-        running: { label: "Executando", className: "text-bg-primary" },
-        success: { label: "Concluído", className: "text-bg-success" },
-        failed: { label: "Falhou", className: "text-bg-danger" },
-        killed: { label: "Interrompido", className: "text-bg-danger" },
+        not_started: { label: "Not started", className: "text-bg-secondary" },
+        enqueued: { label: "Queued", className: "text-bg-warning" },
+        running: { label: "Running", className: "text-bg-primary" },
+        success: { label: "Completed", className: "text-bg-success" },
+        failed: { label: "Failed", className: "text-bg-danger" },
+        killed: { label: "Interrupted", className: "text-bg-danger" },
       };
       let eventSource = null;
       let lastLogSequence = 0;
@@ -227,12 +227,12 @@
         if (scheduleStateBadge && Object.prototype.hasOwnProperty.call(payload, "schedule_enabled")) {
           const enabled = Boolean(payload.schedule_enabled);
           scheduleStateBadge.className = `badge ${enabled ? "text-bg-primary" : "text-bg-secondary"}`;
-          scheduleStateBadge.textContent = enabled ? "Agendado" : "Agendamento desativado";
+          scheduleStateBadge.textContent = enabled ? "Scheduled" : "Schedule disabled";
         }
 
         if (nextRunText && Object.prototype.hasOwnProperty.call(payload, "next_run_display")) {
           if (payload.scheduled && payload.next_run_display) {
-            nextRunText.textContent = `Próxima execução: ${payload.next_run_display}`;
+            nextRunText.textContent = `Next run: ${payload.next_run_display}`;
           } else {
             nextRunText.textContent = "";
           }
@@ -257,13 +257,13 @@
           runButton.disabled = true;
           clearButton.disabled = true;
           killButton.disabled = killRequested;
-          runButton.textContent = "Executando...";
+          runButton.textContent = "Running...";
           if (killRequested) {
-            setStatus("Interrompendo", "text-bg-danger");
+            setStatus("Interrupting", "text-bg-danger");
           } else if (activeRunTrigger === "schedule") {
-            setStatus("Executando agendado", "text-bg-primary");
+            setStatus("Scheduled run", "text-bg-primary");
           } else {
-            setStatus("Executando", "text-bg-primary");
+            setStatus("Running", "text-bg-primary");
           }
         } else {
           killRequested = false;
@@ -271,15 +271,15 @@
           runButton.disabled = false;
           clearButton.disabled = false;
           killButton.disabled = true;
-          runButton.textContent = "Executar";
+          runButton.textContent = "Run";
           if (lastTerminalStatus === "success") {
-            setStatus("Concluído", "text-bg-success");
+            setStatus("Completed", "text-bg-success");
           } else if (lastTerminalStatus === "killed") {
-            setStatus("Interrompido", "text-bg-danger");
+            setStatus("Interrupted", "text-bg-danger");
           } else if (lastTerminalStatus === "failed") {
-            setStatus("Falhou", "text-bg-danger");
+            setStatus("Failed", "text-bg-danger");
           } else {
-            setStatus("Pronto", "text-bg-secondary");
+            setStatus("Ready", "text-bg-secondary");
           }
         }
       }
@@ -435,8 +435,8 @@
         runButton.disabled = true;
         clearButton.disabled = true;
         killButton.disabled = false;
-        runButton.textContent = "Executando...";
-        setStatus("Executando", "text-bg-primary");
+        runButton.textContent = "Running...";
+        setStatus("Running", "text-bg-primary");
         eventSource = new EventSource(`/api/modules/{{ module.id }}/run?t=${Date.now()}`);
 
         for (const eventName of ["status", "plugin_start", "log", "plugin_done"]) {
@@ -462,8 +462,8 @@
             runButton.disabled = false;
             clearButton.disabled = false;
             killButton.disabled = true;
-            runButton.textContent = "Executar";
-            setStatus("Concluído", "text-bg-success");
+            runButton.textContent = "Run";
+            setStatus("Completed", "text-bg-success");
           } else if (payload.status === "locked") {
             resetConsole();
             setRunningState(true, payload.trigger || activeRunTrigger);
@@ -472,14 +472,14 @@
             runButton.disabled = false;
             clearButton.disabled = false;
             killButton.disabled = true;
-            runButton.textContent = "Executar";
-            setStatus("Interrompido", "text-bg-danger");
+            runButton.textContent = "Run";
+            setStatus("Interrupted", "text-bg-danger");
           } else {
             runButton.disabled = false;
             clearButton.disabled = false;
             killButton.disabled = true;
-            runButton.textContent = "Executar";
-            setStatus("Falhou", "text-bg-danger");
+            runButton.textContent = "Run";
+            setStatus("Failed", "text-bg-danger");
           }
           refreshModuleStatus();
         });
@@ -487,7 +487,7 @@
         eventSource.onerror = () => {
           waitingForNewRun = false;
           killRequested = false;
-          appendLog({ level: "error", message: "Conexão de acompanhamento interrompida. Consultando estado atual." });
+          appendLog({ level: "error", message: "Live tracking connection interrupted. Fetching current state." });
           eventSource.close();
           eventSource = null;
           refreshModuleStatus();
@@ -520,7 +520,7 @@
           }
 
           if (!response.ok) {
-            appendLog({ level: "error", message: "Não foi possível limpar o log." });
+            appendLog({ level: "error", message: "Could not clear the log." });
             return;
           }
 
@@ -528,7 +528,7 @@
           lastTerminalStatus = "";
           setRunningState(false);
         } catch (_error) {
-          appendLog({ level: "error", message: "Não foi possível limpar o log." });
+          appendLog({ level: "error", message: "Could not clear the log." });
         } finally {
           if (!eventSource) {
             clearButton.disabled = runButton.disabled;
@@ -543,7 +543,7 @@
 
         killButton.disabled = true;
         killRequested = true;
-        setStatus("Interrompendo", "text-bg-danger");
+        setStatus("Interrupting", "text-bg-danger");
 
         try {
           const response = await fetch("/api/modules/{{ module.id }}/kill", {
@@ -558,7 +558,7 @@
             const payload = await response.json();
             appendLog({
               level: "error",
-              message: payload.message || "Não foi possível interromper o módulo.",
+              message: payload.message || "Could not interrupt the module.",
             });
             killRequested = false;
             killButton.disabled = false;
@@ -569,7 +569,7 @@
           refreshModuleLogs();
         } catch (_error) {
           killRequested = false;
-          appendLog({ level: "error", message: "Não foi possível interromper o módulo." });
+          appendLog({ level: "error", message: "Could not interrupt the module." });
           killButton.disabled = false;
         }
       });

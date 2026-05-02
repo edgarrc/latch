@@ -99,7 +99,7 @@ class BasePlugin(ABC):
                 yield PluginEvent(
                     "info",
                     (
-                        f"Tentando novamente plugin {self.plugin_id!r} apos timeout "
+                        f"Retrying plugin {self.plugin_id!r} after timeout "
                         f"({attempt}/{attempts})."
                     ),
                 )
@@ -112,13 +112,13 @@ class BasePlugin(ABC):
                     yield PluginEvent(
                         "error",
                         (
-                            f"Plugin {self.plugin_id!r} excedeu timeout de "
-                            f"{self.timeout} segundo(s); retry {attempt}/{self.timeout_retries}."
+                            f"Plugin {self.plugin_id!r} exceeded timeout of "
+                            f"{self.timeout} second(s); retry {attempt}/{self.timeout_retries}."
                         ),
                     )
                     continue
                 raise PluginExecutionError(
-                    f"Plugin {self.plugin_id!r} excedeu timeout de {self.timeout} segundo(s)."
+                    f"Plugin {self.plugin_id!r} exceeded timeout of {self.timeout} second(s)."
                 )
 
     def _run_once_with_timeout(self) -> Iterator[PluginEvent]:
@@ -195,7 +195,7 @@ class BasePlugin(ABC):
         thread.join(timeout=0)
         if thread.is_alive():
             raise PluginExecutionError(
-                f"Plugin {self.plugin_id!r} excedeu timeout e nao encerrou apos kill."
+                f"Plugin {self.plugin_id!r} exceeded timeout and did not exit after kill."
             )
 
     def _prepare_retry(self) -> None:

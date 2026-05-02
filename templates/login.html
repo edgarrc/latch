@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,8 +17,8 @@
             <p class="auth-copy">{{ app_tagline }}</p>
           </div>
         </div>
-        <h1 class="h5 mb-2">Entrar</h1>
-        <p class="text-secondary mb-4">Acesse para operar os módulos disponíveis.</p>
+        <h1 class="h5 mb-2">Sign in</h1>
+        <p class="text-secondary mb-4">Sign in to operate the available modules.</p>
 
         {% if error %}
           <div class="alert alert-danger" role="alert">{{ error }}</div>
@@ -27,14 +27,14 @@
         <form method="post" action="/login">
           <input type="hidden" name="next" value="{{ next_url }}">
           <div class="mb-3">
-            <label class="form-label" for="username">Usuário</label>
+            <label class="form-label" for="username">Username</label>
             <input id="username" class="form-control" name="username" type="text" value="{{ username }}" autocomplete="username" required autofocus>
           </div>
           <div class="mb-4">
-            <label class="form-label" for="password">Senha</label>
+            <label class="form-label" for="password">Password</label>
             <input id="password" class="form-control" name="password" type="password" autocomplete="current-password" required>
           </div>
-          <button class="btn btn-primary w-100" type="submit">Entrar</button>
+          <button class="btn btn-primary w-100" type="submit">Sign in</button>
         </form>
       </section>
     </main>

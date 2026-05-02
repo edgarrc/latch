@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,8 +17,8 @@
             <p class="auth-copy">{{ app_tagline }}</p>
           </div>
         </div>
-        <h1 class="h4 mb-2">Setup inicial</h1>
-        <p class="text-secondary mb-4">Defina as senhas dos usuários admin e user para proteger a operação do Latch.</p>
+        <h1 class="h4 mb-2">Initial setup</h1>
+        <p class="text-secondary mb-4">Set passwords for the admin and user accounts to protect Latch operations.</p>
 
         {% if error %}
           <div class="alert alert-danger" role="alert">{{ error }}</div>
@@ -26,22 +26,22 @@
 
         <form method="post" action="/setup">
           <div class="mb-3">
-            <label class="form-label" for="adminPassword">Senha do admin</label>
+            <label class="form-label" for="adminPassword">Admin password</label>
             <input id="adminPassword" class="form-control" name="admin_password" type="password" autocomplete="new-password" required autofocus>
           </div>
           <div class="mb-3">
-            <label class="form-label" for="adminPasswordConfirm">Confirmar senha do admin</label>
+            <label class="form-label" for="adminPasswordConfirm">Confirm admin password</label>
             <input id="adminPasswordConfirm" class="form-control" name="admin_password_confirm" type="password" autocomplete="new-password" required>
           </div>
           <div class="mb-3">
-            <label class="form-label" for="userPassword">Senha do user</label>
+            <label class="form-label" for="userPassword">User password</label>
             <input id="userPassword" class="form-control" name="user_password" type="password" autocomplete="new-password" required>
           </div>
           <div class="mb-4">
-            <label class="form-label" for="userPasswordConfirm">Confirmar senha do user</label>
+            <label class="form-label" for="userPasswordConfirm">Confirm user password</label>
             <input id="userPasswordConfirm" class="form-control" name="user_password_confirm" type="password" autocomplete="new-password" required>
           </div>
-          <button class="btn btn-primary w-100" type="submit">Salvar senhas</button>
+          <button class="btn btn-primary w-100" type="submit">Save passwords</button>
         </form>
       </section>
     </main>

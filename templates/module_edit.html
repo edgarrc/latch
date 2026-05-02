@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% if mode == "create" %}Novo módulo{% elif readonly %}Visualizar {{ module_name }}{% else %}Editar {{ module_name }}{% endif %} - {{ app_name }}</title>
+    <title>{% if mode == "create" %}New module{% elif readonly %}View {{ module_name }}{% else %}Edit {{ module_name }}{% endif %} - {{ app_name }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='app.css') }}" rel="stylesheet">
   </head>
@@ -13,21 +13,21 @@
       <div class="editor-actions mb-4">
         <div class="toolbar">
           <div>
-            <a class="back-link" href="/">← Módulos</a>
+            <a class="back-link" href="/">← Modules</a>
             <h1 class="page-title mt-2">
-              {% if mode == "create" %}Novo módulo{% elif readonly %}Visualizar {{ module_name }}{% else %}Editar {{ module_name }}{% endif %}
+              {% if mode == "create" %}New module{% elif readonly %}View {{ module_name }}{% else %}Edit {{ module_name }}{% endif %}
             </h1>
           </div>
           <div class="d-flex flex-wrap gap-2">
             {% if mode == "edit" %}
-              <a class="btn btn-outline-secondary" href="/{{ module_id }}">Abrir</a>
+              <a class="btn btn-outline-secondary" href="/{{ module_id }}">Open</a>
               {% if not readonly %}
                 <button
                   id="deleteButton"
                   class="btn btn-outline-danger"
                   type="button"
                   {% if module_running %}disabled{% endif %}
-                >Excluir</button>
+                >Delete</button>
               {% endif %}
             {% endif %}
             {% if not readonly %}
@@ -37,7 +37,7 @@
                 class="btn btn-primary"
                 type="button"
                 {% if module_running %}disabled{% endif %}
-              >Salvar</button>
+              >Save</button>
             {% endif %}
           </div>
         </div>
@@ -47,23 +47,23 @@
         <div>
           <p class="page-description">
             {% if readonly %}
-              Visualize o YAML do módulo. Valores sensíveis aparecem mascarados.
+              View the module YAML. Sensitive values are masked.
             {% else %}
-              Edite o YAML bruto do módulo. Use Validate antes de salvar para conferir sintaxe, schema e plugins.
+              Edit the raw module YAML. Use Validate before saving to check syntax, schema, and plugins.
             {% endif %}
           </p>
         </div>
         {% if module_running %}
-          <span class="badge text-bg-warning">Módulo em execução</span>
+          <span class="badge text-bg-warning">Module running</span>
         {% endif %}
       </div>
 
       {% if module_running %}
         <div class="alert alert-warning" role="alert">
           {% if readonly %}
-            O módulo está em execução. A visualização do YAML continua disponível.
+            The module is running. YAML viewing remains available.
           {% else %}
-            O módulo está em execução. A validação está disponível, mas salvar e excluir ficam bloqueados até a execução terminar.
+            The module is running. Validation remains available, but saving and deleting are blocked until the run finishes.
           {% endif %}
         </div>
       {% endif %}
@@ -72,7 +72,7 @@
 
       <div class="editor-panel {% if module_running %}is-locked{% endif %}">
         <div class="mb-3">
-          <label for="moduleId" class="form-label">ID do módulo</label>
+          <label for="moduleId" class="form-label">Module ID</label>
           <input
             id="moduleId"
             class="form-control"
@@ -81,7 +81,7 @@
             {% if mode == "edit" %}disabled{% endif %}
             placeholder="exemplo_modulo"
           >
-          <div class="form-text">Use apenas letras, números, underline ou hífen.</div>
+          <div class="form-text">Use only letters, numbers, underscores, or hyphens.</div>
         </div>
 
         <div>
@@ -140,7 +140,7 @@
       if (validateButton) {
         validateButton.addEventListener("click", async () => {
           validateButton.disabled = true;
-          showMessage("secondary", "Validando...");
+          showMessage("secondary", "Validating...");
 
           try {
             const { response, payload } = await requestJson("/api/modules/validate", {
@@ -152,13 +152,13 @@
             });
 
             if (!response.ok || !payload.valid) {
-              showMessage("danger", payload.message || "Configuração inválida.");
+              showMessage("danger", payload.message || "Invalid configuration.");
               return;
             }
 
-            showMessage("success", payload.message || "Configuração válida.");
+            showMessage("success", payload.message || "Valid configuration.");
           } catch (_error) {
-            showMessage("danger", "Não foi possível validar a configuração.");
+            showMessage("danger", "Could not validate the configuration.");
           } finally {
             validateButton.disabled = false;
           }
@@ -173,12 +173,12 @@
 
           const moduleId = currentModuleId();
           if (!moduleId) {
-            showMessage("danger", "Informe o ID do módulo.");
+            showMessage("danger", "Enter the module ID.");
             return;
           }
 
           saveButton.disabled = true;
-          showMessage("secondary", "Salvando...");
+          showMessage("secondary", "Saving...");
 
           try {
             const url = mode === "edit" ? `/api/modules/${existingModuleId}` : "/api/modules";
@@ -192,12 +192,12 @@
             });
 
             if (!response.ok || !payload.saved) {
-              showMessage("danger", payload.message || "Não foi possível salvar.");
+              showMessage("danger", payload.message || "Could not save.");
               saveButton.disabled = moduleRunning || Boolean(payload.running);
               return;
             }
 
-            showMessage("success", payload.message || "Módulo salvo.");
+            showMessage("success", payload.message || "Module saved.");
             if (typeof payload.yaml_content === "string") {
               yamlContent.value = payload.yaml_content;
             }
@@ -207,7 +207,7 @@
               saveButton.disabled = moduleRunning;
             }
           } catch (_error) {
-            showMessage("danger", "Não foi possível salvar.");
+            showMessage("danger", "Could not save.");
             saveButton.disabled = moduleRunning;
           }
         });
@@ -219,13 +219,13 @@
             return;
           }
 
-          if (!window.confirm("Excluir este módulo e seus arquivos temporários?")) {
+          if (!window.confirm("Delete this module and its temporary files?")) {
             return;
           }
 
           deleteButton.disabled = true;
           saveButton.disabled = true;
-          showMessage("secondary", "Excluindo...");
+          showMessage("secondary", "Deleting...");
 
           try {
             const { response, payload } = await requestJson(`/api/modules/${existingModuleId}`, {
@@ -233,7 +233,7 @@
             });
 
             if (!response.ok || !payload.deleted) {
-              showMessage("danger", payload.message || "Não foi possível excluir.");
+              showMessage("danger", payload.message || "Could not delete.");
               deleteButton.disabled = moduleRunning || Boolean(payload.running);
               saveButton.disabled = moduleRunning || Boolean(payload.running);
               return;
@@ -241,7 +241,7 @@
 
             window.location.href = "/";
           } catch (_error) {
-            showMessage("danger", "Não foi possível excluir.");
+            showMessage("danger", "Could not delete.");
             deleteButton.disabled = moduleRunning;
             saveButton.disabled = moduleRunning;
           }

@@ -295,7 +295,7 @@ def test_missing_settings_redirects_to_setup(
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/setup")
     assert setup_response.status_code == 200
-    assert b"Setup inicial" in setup_response.data
+    assert b"Initial setup" in setup_response.data
     assert_latch_branding(setup_response)
 
 
@@ -439,7 +439,7 @@ def test_login_rejects_invalid_password(
     )
 
     assert response.status_code == 200
-    assert "Usuário ou senha inválidos.".encode() in response.data
+    assert b"Invalid username or password." in response.data
     with client.session_transaction() as client_session:
         assert "user" not in client_session
 
@@ -625,9 +625,9 @@ def test_module_page_renders_plugin_status_column(
 
     assert response.status_code == 200
     assert b"Status" in response.data
-    assert b"Descri" in response.data
+    assert b"Description" in response.data
     assert b"data-plugin-id=\"preparar_publico\"" in response.data
-    assert "Não iniciado".encode() in response.data
+    assert b"Not started" in response.data
 
 
 def test_module_page_renders_schedule_notice(
@@ -653,10 +653,10 @@ def test_module_page_renders_schedule_notice(
     response = client.get("/publico")
 
     assert response.status_code == 200
-    assert b"Agendado" in response.data
+    assert b"Scheduled" in response.data
     assert b"0 * * * *" in response.data
     assert b"nextRunText" in response.data
-    assert "Próxima execução".encode() in response.data
+    assert b"Next run" in response.data
 
 
 def test_index_renders_add_and_edit_actions(
@@ -670,7 +670,7 @@ def test_index_renders_add_and_edit_actions(
     response = client.get("/")
 
     assert response.status_code == 200
-    assert b"Adicionar" in response.data
+    assert b"Add module" in response.data
     assert b"/modules/publico/edit" in response.data
 
 
@@ -692,9 +692,9 @@ def test_user_index_shows_script_view_without_edit_actions(
 
     assert response.status_code == 200
     assert b"user" in response.data
-    assert b"Adicionar" not in response.data
-    assert b"Editar" not in response.data
-    assert b"Ver script" in response.data
+    assert b"Add module" not in response.data
+    assert b"Edit" not in response.data
+    assert b"View script" in response.data
     assert b"/modules/publico/edit" in response.data
 
 
@@ -731,16 +731,16 @@ def test_user_can_view_module_yaml_readonly_but_cannot_access_edit_apis(
     ]
 
     assert edit_response.status_code == 200
-    assert b"Visualizar Publico" in edit_response.data
+    assert b"View Publico" in edit_response.data
     assert b"readonly" in edit_response.data
     assert b"Validate" not in edit_response.data
-    assert b"Salvar" not in edit_response.data
-    assert b"Excluir" not in edit_response.data
+    assert b"Save" not in edit_response.data
+    assert b"Delete" not in edit_response.data
 
     for response in responses:
         assert response.status_code == 403
 
-    assert responses[1].get_json()["message"] == "Apenas admin pode editar módulos."
+    assert responses[1].get_json()["message"] == "Only admin can edit modules."
     assert (user_modules_dir / "publico.yaml").exists()
 
 
@@ -1114,7 +1114,7 @@ def test_validate_module_endpoint_rejects_invalid_schedule() -> None:
 
     assert response.status_code == 400
     assert response.get_json()["valid"] is False
-    assert "schedule inválido" in response.get_json()["message"]
+    assert "Invalid schedule" in response.get_json()["message"]
 
 
 def test_validate_module_endpoint_returns_original_yaml() -> None:
@@ -1159,7 +1159,7 @@ def test_module_edit_keeps_editor_content_after_validation(
         1
     ].split('saveButton.addEventListener("click"', 1)[0]
     assert "yamlContent.value = payload.yaml_content;" not in validate_handler
-    assert "Configuração válida." in validate_handler
+    assert "Valid configuration." in validate_handler
 
 
 def test_create_module_endpoint_persists_yaml(
@@ -1422,7 +1422,7 @@ def test_stream_batch_persists_schedule_trigger_metadata() -> None:
     assert active_events
     assert all(record["trigger"] == "schedule" for record in records)
     assert all(record["scheduled_for"] == scheduled_for for record in records)
-    assert records[0]["message"].startswith("Iniciando batch agendado")
+    assert records[0]["message"].startswith("Starting scheduled batch")
 
 
 def test_stream_batch_emits_plugin_statuses_on_success() -> None:
